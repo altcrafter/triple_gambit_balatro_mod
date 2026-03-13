@@ -123,6 +123,7 @@ Audio.BOARD_PITCH = {
     A = 1.000,
     B = 1.122,
     C = 1.260,
+    D = 1.498,   -- perfect fifth above A (×1.498 ≈ 3:2)
 }
 
 -- ============================================================
@@ -133,6 +134,7 @@ Audio.BOARD_PAN = {
     A = -0.45,
     B =  0.00,
     C =  0.45,
+    D =  0.70,
 }
 
 -- ============================================================
@@ -142,7 +144,7 @@ Audio.BOARD_PAN = {
 local CHIP_ALL   = { "chip1", "chip2", "chip3", "chip4", "chip5" }
 local CHIP_HEAVY = { "chip3", "chip4", "chip5" }
 
-local chip_cursor = {}   -- { A=1, B=1, C=1 } — reset in Audio.init()
+local chip_cursor = {}   -- { A=1, B=1, C=1, D=1 } — reset in Audio.init()
 
 local function next_chip(board_id)
     local key = board_id or "A"
@@ -735,7 +737,7 @@ function Audio.init()
     cascade_elapsed = 0
     duck_factor     = 1.0
     duck_target     = 1.0
-    chip_cursor     = { A = 1, B = 1, C = 1 }
+    chip_cursor     = { A = 1, B = 1, C = 1, D = 1 }
 
     probe_panning()
 
