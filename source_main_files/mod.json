@@ -1,0 +1,13 @@
+{
+    "id": "TripleGambit",
+    "name": "Triple Gambit",
+    "display_name": "Triple Gambit",
+    "author": ["karaq"],
+    "description": "Three independent boards, shared resources, gambit system.",
+    "prefix": "tg",
+    "main_file": "main.lua",
+    "version": "1.0.0",
+    "dependencies": [
+        "Steamodded (>=1.0.0~)"
+    ]
+}
