@@ -68,11 +68,24 @@ end
 local _tg_blind_won        = false
 local _tg_defeat_processed = false
 
-local function tg_check_all_cleared()
+local function tg_check_blind_won()
+    if not TG.initialized then return false end
+    local count = 0
+    for _, id in ipairs(TG.BOARD_IDS) do
+        local b = TG:get_board(id)
+        if b and b.is_cleared then count = count + 1 end
+    end
+    return count >= TG.CONFIG.BOARDS_TO_CLEAR
+end
+
+-- True when every uncleared board has run out of hands
+local function tg_all_hands_exhausted()
     if not TG.initialized then return false end
     for _, id in ipairs(TG.BOARD_IDS) do
         local b = TG:get_board(id)
-        if not b or not b.is_cleared then return false end
+        if b and not b.is_cleared and (b.hands_remaining or 0) > 0 then
+            return false
+        end
     end
     return true
 end
@@ -106,11 +119,12 @@ function TG.Hooks.sync_starting_money()
         local board = TG:get_board(id)
         if board then board.money = per + (i == 1 and rem or 0) end
     end
-    print(string.format("[TG] Starting money $%d -> A=$%d B=$%d C=$%d",
-        total,
-        TG:get_board("A").money,
-        TG:get_board("B").money,
-        TG:get_board("C").money))
+    local parts = {}
+    for _, id in ipairs(TG.BOARD_IDS) do
+        local b = TG:get_board(id)
+        table.insert(parts, id .. "=$" .. (b and b.money or 0))
+    end
+    print(string.format("[TG] Starting money $%d -> %s", total, table.concat(parts, " ")))
 end
 
 -- ============================================================
@@ -210,8 +224,8 @@ local function on_score_calculated()
         h.level = math.max(1, (h.level or 1) - boost_cleanup)
     end
 
-    -- ── Win condition: all boards cleared → force blind victory ──
-    if tg_check_all_cleared() and not _tg_blind_won then
+    -- ── Win condition: 3+ boards cleared → force blind victory ──
+    if tg_check_blind_won() and not _tg_blind_won then
         _tg_blind_won = true
         -- NOW allow G.GAME.chips to meet the target
         if G.GAME and G.blind then
@@ -236,16 +250,17 @@ local function on_score_calculated()
                 end
             }))
         end
-        print("[TG] All boards cleared! Blind victory queued.")
+        print("[TG] 3+ boards cleared! Blind victory queued.")
     end
 
-    -- Near-loss tension
-    if TG.pool.hands_remaining == 1 and not tg_check_all_cleared() and not _tg_blind_won then
+    -- Near-loss tension: active board down to 1 hand and blind not won
+    local ab_score = TG:get_active_board()
+    if ab_score and ab_score.hands_remaining == 1 and not tg_check_blind_won() and not _tg_blind_won then
         if TG.Audio then TG.Audio.play("near_loss") end
     end
 
-    -- Loss condition
-    if TG.pool.hands_remaining == 0 and not tg_check_all_cleared() and not _tg_blind_won then
+    -- Loss condition: all uncleared boards have 0 hands remaining
+    if tg_all_hands_exhausted() and not tg_check_blind_won() and not _tg_blind_won then
         TG:on_run_lost("hands exhausted")
     end
 
@@ -286,14 +301,15 @@ local function install_hooks()
             local args = { ... }; return orig_play(e, unpack(args))
         end
 
-        if not TG.pool:can_play_hand() then
+        local active_board = TG:get_active_board()
+        if not active_board or not active_board:can_play_hand() then
             if TG.Audio then TG.Audio.play("action_blocked") end
             return
         end
 
-        TG.pool:use_hand()
+        active_board:use_hand()
         if G.GAME and G.GAME.current_round then
-            G.GAME.current_round.hands_left = TG.pool.hands_remaining
+            G.GAME.current_round.hands_left = active_board.hands_remaining
         end
 
         local board_id  = TG.active_board_id
@@ -342,8 +358,9 @@ local function install_hooks()
             local args = { ... }; return orig_discard(e, unpack(args))
         end
 
-        local forced = type(e) == "table" and e.triggered == true
-        if not forced and not TG.pool:can_discard() then
+        local forced       = type(e) == "table" and e.triggered == true
+        local discard_board = TG:get_active_board()
+        if not forced and (not discard_board or not discard_board:can_discard()) then
             if TG.Audio then TG.Audio.play("action_blocked") end
             return
         end
@@ -351,10 +368,10 @@ local function install_hooks()
         local args   = { ... }
         local result = orig_discard(e, unpack(args))
 
-        if not forced then
-            TG.pool.discards_remaining = TG.pool.discards_remaining - 1
+        if not forced and discard_board then
+            discard_board:use_discard()
             if G.GAME and G.GAME.current_round then
-                G.GAME.current_round.discards_left = TG.pool.discards_remaining
+                G.GAME.current_round.discards_left = discard_board.discards_remaining
             end
         end
         return result
@@ -409,10 +426,13 @@ function TG.Hooks.on_blind_start()
         end
     end
 
-    -- Mirror pool to Balatro
+    -- Sync active board's resources into Balatro's native counters
     if G and G.GAME and G.GAME.current_round then
-        G.GAME.current_round.hands_left    = TG.pool.hands_remaining
-        G.GAME.current_round.discards_left = TG.pool.discards_remaining
+        local ab = TG:get_active_board()
+        if ab then
+            G.GAME.current_round.hands_left    = ab.hands_remaining
+            G.GAME.current_round.discards_left = ab.discards_remaining
+        end
     end
 end
 
@@ -465,7 +485,7 @@ end
 
 function TG.Hooks.on_key_pressed(key)
     if not TG.initialized then return false end
-    if key == "1" or key == "2" or key == "3" then
+    if key == "1" or key == "2" or key == "3" or key == "4" then
         TG.Switching.handle_key(key)
         return true
     end
@@ -568,8 +588,8 @@ end
 local orig_blind_defeat = Blind.defeat
 function Blind:defeat(...)
     if TG.initialized then
-        -- Suppress unless ALL THREE boards are cleared
-        if not tg_check_all_cleared() then
+        -- Suppress until 3+ boards are cleared
+        if not tg_check_blind_won() then
             return  -- Block — player must continue
         end
         if _tg_defeat_processed then return end
@@ -656,7 +676,7 @@ function love.update(dt, ...)
     -- Prevent Balatro from detecting blind completion until ALL
     -- TG boards have cleared.
     -- ═══════════════════════════════════════════════════════════
-    if TG.initialized and not _tg_blind_won then
+    if TG.initialized and not tg_check_blind_won() and not _tg_blind_won then
         if G.GAME and G.blind and G.blind.chips then
             if G.GAME.chips >= G.blind.chips then
                 G.GAME.chips = G.blind.chips - 1

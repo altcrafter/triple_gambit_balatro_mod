@@ -5,7 +5,7 @@
 
 TG = TG or {}
 
-TG.BOARD_IDS = { "A", "B", "C" }
+TG.BOARD_IDS = { "A", "B", "C", "D" }
 
 -- ============================================================
 -- CONFIG
@@ -18,7 +18,7 @@ TG.CONFIG = {
     STARTING_HAND_SIZE        = 8,
     STARTING_MONEY            = 4,
     MAX_JOKERS_PER_BOARD      = 5,
-    TOTAL_BOARDS              = 3,
+    TOTAL_BOARDS              = 4,
     BOARDS_TO_CLEAR           = 3,
     FINAL_ANTE                = 8,
     REROLL_COST               = 5,
@@ -33,6 +33,7 @@ TG.CONFIG = {
         A = "BOARD A",
         B = "BOARD B",
         C = "BOARD C",
+        D = "BOARD D",
     },
 
     -- Industrial palette: desaturated, high contrast
@@ -40,6 +41,7 @@ TG.CONFIG = {
         A = { r = 0.85, g = 0.22, b = 0.27 },  -- signal red
         B = { r = 0.27, g = 0.48, b = 0.62 },  -- steel blue
         C = { r = 0.92, g = 0.62, b = 0.28 },  -- amber warning
+        D = { r = 0.55, g = 0.78, b = 0.42 },  -- muted green
     },
 
     CLEAR_BUFF_BASE           = 0.15,
@@ -55,7 +57,6 @@ function TG:init()
     print("[TG] Initializing Triple Gambit...")
 
     TG.Board        = tg_require("core/board")
-    TG.ResourcePool = tg_require("core/resource_pool")
     TG.Switching    = tg_require("core/switching")
     TG.Shop         = tg_require("core/shop_logic")
     TG.SaveLoad     = tg_require("core/save_load")
@@ -63,17 +64,12 @@ function TG:init()
     TG.Gambit       = tg_require("core/gambit")
     TG.Amplifier    = tg_require("core/amplifier")
     TG.ChipStack    = tg_require("core/chip_stack")
-    TG.GambitBase   = tg_require("core/gambit_base")
-    tg_require("core/gambits")  -- registers all 11 gambits
 
     self.boards = {}
     for _, id in ipairs(TG.BOARD_IDS) do
         self.boards[id] = TG.Board:new(id)
-        self.boards[id]:init_standard_deck()
     end
     self.active_board_id = "A"
-
-    self.pool = TG.ResourcePool:new()
     self.active_gambits = {}
     self.chip_stack          = TG.ChipStack:new()
     self.run_active          = true
@@ -86,7 +82,7 @@ function TG:init()
     self.boards_played_on    = {}
 
     self.initialized = true
-    print("[TG] Triple Gambit ready. Three boards initialized.")
+    print("[TG] Triple Gambit ready. Four boards initialized.")
 end
 
 -- ============================================================
@@ -131,7 +127,6 @@ end
 -- ============================================================
 
 function TG:on_blind_start()
-    self.pool:reset()
     TG.Amplifier.reset()
 
     -- Sync from Balatro's state
@@ -162,10 +157,11 @@ function TG:on_blind_start()
 end
 
 function TG:on_blind_end()
-    local reward = self.pool.hands_remaining * TG.CONFIG.REWARD_PER_UNUSED_HAND
-    if reward > 0 then
-        local board = self:get_active_board()
-        if board then board:add_money(reward) end
+    local board = self:get_active_board()
+    local hands_left = board and (board.hands_remaining or 0) or 0
+    local reward = hands_left * TG.CONFIG.REWARD_PER_UNUSED_HAND
+    if reward > 0 and board then
+        board:add_money(reward)
     end
     self:advance_blind()
 end
