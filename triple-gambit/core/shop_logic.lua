@@ -718,9 +718,8 @@ function TG.Shop.open_pack_for_board(pack, board)
                 -- Consumable - add to board's consumables
                 table.insert(board.consumables, card)
             else
-                -- Playing card - add to board's deck
-                table.insert(board.deck.full_deck, card)
-                table.insert(board.deck.draw_pile, card)
+                -- Playing card - register key with board's key-based deck
+                board:add_card_key(card)
                 card.board_id = board.id
             end
         end

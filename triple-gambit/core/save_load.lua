@@ -1,7 +1,7 @@
 --[[
     TRIPLE GAMBIT - core/save_load.lua
     Persists all mod state: boards, gambits, amplifier buffs.
-    No shared ResourcePool — per-board hands/discards are serialized inside each board.
+    No shared ResourcePool — per-board hands/discards are inside each board's serialize().
 ]]
 
 TG = TG or {}
@@ -75,7 +75,8 @@ function TG.SaveLoad.deserialize(data)
     TG.current_ante        = data.current_ante        or 1
     TG.current_blind_type  = data.current_blind_type  or "small"
 
-    -- Restore gambit state
+    -- Restore gambit state (joker_refs will be nil until jokers reload;
+    -- that is acceptable — boards remain locked correctly on deserialization)
     if TG.Gambit and data.gambits then
         TG.Gambit.deserialize(data.gambits)
     end
@@ -98,6 +99,7 @@ function TG.SaveLoad.on_save(save_data)
     save_data[SAVE_KEY] = TG.SaveLoad.serialize()
 end
 
+-- Alias used in main.lua
 TG.SaveLoad.on_save_progress = TG.SaveLoad.on_save
 
 function TG.SaveLoad.on_load(save_data)
@@ -108,6 +110,22 @@ function TG.SaveLoad.on_load(save_data)
         print("[TG] No Triple Gambit data in save file")
         return false
     end
+end
+
+-- ============================================================
+-- VALIDATION
+-- ============================================================
+
+function TG.SaveLoad.validate()
+    local living = 0
+    for _, id in ipairs(TG.BOARD_IDS) do
+        local b = TG:get_board(id)
+        if b and not b.is_dead then living = living + 1 end
+    end
+    if living < TG.CONFIG.BOARDS_TO_CLEAR then
+        print("[TG] WARNING: Fewer living boards than BOARDS_TO_CLEAR")
+    end
+    return true
 end
 
 return TG.SaveLoad
