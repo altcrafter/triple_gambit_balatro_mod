@@ -1,44 +1,86 @@
 --[[
     TRIPLE GAMBIT - ui/tg_shader.lua
-    CRT post-processing: scanlines + vignette.
-    API: Shader.init(), Shader.begin_pass(), Shader.end_pass()
-    atmosphere.lua defers scanlines/vignette to this module.
+    Post-processing pipeline for TG's UI overlay.
 
-    If the shader fails to compile (driver issue, old GPU), falls back to
-    software scanlines + vignette drawn directly with love.graphics.
+    Renders all TG UI to an offscreen canvas, then applies:
+    1. Chromatic aberration (Apple waterdrop style — R/G/B channel displacement
+       that radiates from center, stronger at edges)
+    2. CRT scanlines — industrial horizontal banding
+    3. Barrel lens distortion — subtle curve like looking through glass/water
+    4. Vignette — edge darkening for depth
+
+    This gives TG its own visual identity independent of Balatro's render
+    pipeline, so our overlays get the CRT/industrial treatment.
 ]]
 
-local Shader = {}
+TG    = TG or {}
+TG.UI = TG.UI or {}
+TG.UI.Shader = {}
 
-Shader._canvas  = nil
-Shader._shader  = nil
-Shader._ok      = false
+local S = TG.UI.Shader
+
+S._canvas            = nil
+S._shader            = nil
+S._time              = 0
+S._aberration        = 0.0015  -- base chromatic aberration (subtle)
+S._aberration_target = 0.0015
+S._aberration_rate   = 3.0
+S._scanline_alpha    = 0.045
+S._active            = false
+S._initialized       = false
 
 -- ============================================================
--- GLSL SOURCE
+-- SHADER SOURCE (GLSL)
 -- ============================================================
 
-local GLSL_SRC = [[
-extern vec2 screen_size;
+local SHADER_SRC = [[
+extern float aberration;
 extern float time;
-extern float scanline_alpha;   // 0.0 = off, 1.0 = full
-extern float vignette_alpha;   // 0.0 = off, 1.0 = full
+extern float scanline_alpha;
+extern vec2 resolution;
 
-vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
-    vec4 pixel = Texel(tex, texture_coords);
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords) {
+    // ── Barrel distortion (waterdrop lens) ──
+    vec2 center = uv - 0.5;
+    float r2 = dot(center, center);
+    float distort = 1.0 + r2 * 0.08;  // subtle barrel
+    vec2 duv = center * distort + 0.5;
 
-    // Scanlines: darken even rows slightly
-    float line = mod(floor(screen_coords.y), 2.0);
-    float scan = 1.0 - line * 0.04 * scanline_alpha;
-    pixel.rgb *= scan;
+    // Clamp to valid range
+    duv = clamp(duv, 0.0, 1.0);
 
-    // Vignette: radial falloff from center
-    vec2 uv = texture_coords * 2.0 - 1.0;
-    float dist = length(uv);
-    float vig = 1.0 - smoothstep(0.45, 1.2, dist) * 0.55 * vignette_alpha;
-    pixel.rgb *= vig;
+    // ── Chromatic aberration (radial, Apple-style) ──
+    // Displacement scales with distance from center (waterdrop effect)
+    float ab = aberration * (1.0 + r2 * 8.0);
+    // Add subtle time-based drift (industrial hum)
+    ab *= (1.0 + 0.15 * sin(time * 2.3));
 
-    return pixel * color;
+    vec2 dir = normalize(center + 0.001);
+    float r = Texel(tex, duv + dir * ab).r;
+    float g = Texel(tex, duv).g;
+    float b = Texel(tex, duv - dir * ab).b;
+    float a = Texel(tex, duv).a;
+
+    // Take max alpha from all channels so nothing disappears
+    a = max(a, max(Texel(tex, duv + dir * ab).a,
+                   Texel(tex, duv - dir * ab).a));
+
+    vec4 col = vec4(r, g, b, a);
+
+    // ── Scanlines (industrial CRT) ──
+    float line_pos = screen_coords.y;
+    float scanline = 1.0 - scanline_alpha * (0.5 + 0.5 * sin(line_pos * 3.14159));
+    col.rgb *= scanline;
+
+    // ── Sub-pixel horizontal banding (every 3rd pixel row, very subtle) ──
+    float subpx = 1.0 - 0.02 * step(0.66, fract(screen_coords.y / 3.0));
+    col.rgb *= subpx;
+
+    // ── Vignette (industrial edge darkening) ──
+    float vig = 1.0 - dot(center, center) * 0.4;
+    col.rgb *= clamp(vig, 0.55, 1.0);
+
+    return col * color;
 }
 ]]
 
@@ -46,131 +88,85 @@ vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
 -- INIT
 -- ============================================================
 
-function Shader.init()
-    -- Create render canvas matching screen size
-    local w, h = love.graphics.getDimensions()
-    local ok_canvas, canvas = pcall(love.graphics.newCanvas, w, h)
-    if not ok_canvas then
-        Shader._ok = false
-        return
-    end
-    Shader._canvas = canvas
-
-    -- Compile shader
-    local ok_shader, shader = pcall(love.graphics.newShader, GLSL_SRC)
-    if ok_shader and shader then
-        Shader._shader = shader
-        -- Set uniforms
-        if shader:hasUniform("screen_size") then
-            shader:send("screen_size", { w, h })
-        end
-        if shader:hasUniform("scanline_alpha") then
-            shader:send("scanline_alpha", 1.0)
-        end
-        if shader:hasUniform("vignette_alpha") then
-            shader:send("vignette_alpha", 1.0)
-        end
-        if shader:hasUniform("time") then
-            shader:send("time", 0.0)
-        end
-        Shader._ok = true
+function S.init()
+    local ok, shader = pcall(love.graphics.newShader, SHADER_SRC)
+    if ok and shader then
+        S._shader      = shader
+        S._initialized = true
+        print("[TG] Shader: chromatic aberration + CRT + barrel distortion initialized")
     else
-        -- Shader compile failed; use software fallback
-        Shader._ok = false
+        print("[TG] Shader: compile failed (" .. tostring(shader) .. "), falling back to direct draw")
+        S._initialized = false
     end
 end
 
 -- ============================================================
--- PASS API
+-- CANVAS
 -- ============================================================
 
--- Call at the START of TG.Hooks.draw() — redirects rendering to canvas
-function Shader.begin_pass()
-    if not Shader._ok or not Shader._canvas then return end
-    -- Resize canvas if screen changed
-    local w, h = love.graphics.getDimensions()
-    local cw   = Shader._canvas:getWidth()
-    local ch   = Shader._canvas:getHeight()
-    if cw ~= w or ch ~= h then
-        local ok, nc = pcall(love.graphics.newCanvas, w, h)
-        if ok then Shader._canvas = nc end
-        if Shader._shader and Shader._shader:hasUniform("screen_size") then
-            Shader._shader:send("screen_size", { w, h })
-        end
+local function ensure_canvas()
+    local sw = love.graphics.getWidth()
+    local sh = love.graphics.getHeight()
+    if not S._canvas or S._canvas:getWidth() ~= sw or S._canvas:getHeight() ~= sh then
+        S._canvas = love.graphics.newCanvas(sw, sh)
     end
+end
 
-    love.graphics.setCanvas(Shader._canvas)
+-- ============================================================
+-- RENDER PASS
+-- ============================================================
+
+function S.begin_pass()
+    if not S._initialized then return end
+    ensure_canvas()
+    S._active = true
+    love.graphics.setCanvas(S._canvas)
     love.graphics.clear(0, 0, 0, 0)
 end
 
--- Call at the END of TG.Hooks.draw() — applies shader and draws to screen
-function Shader.end_pass()
-    if not Shader._ok or not Shader._canvas then
-        -- Software fallback: just draw scanlines + vignette
-        Shader._draw_software()
-        return
+function S.end_pass()
+    if not S._active then return end
+    S._active = false
+    love.graphics.setCanvas()
+
+    if S._shader then
+        local sw = love.graphics.getWidth()
+        local sh = love.graphics.getHeight()
+        love.graphics.setShader(S._shader)
+        S._shader:send("aberration", S._aberration)
+        S._shader:send("time", S._time)
+        S._shader:send("scanline_alpha", S._scanline_alpha)
+        pcall(function() S._shader:send("resolution", {sw, sh}) end)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(S._canvas, 0, 0)
+        love.graphics.setShader()
+    else
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(S._canvas, 0, 0)
     end
+end
 
-    love.graphics.setCanvas()  -- back to screen
+-- ============================================================
+-- UPDATE
+-- ============================================================
 
-    if Shader._shader then
-        -- Update time uniform if present
-        if Shader._shader:hasUniform("time") then
-            Shader._shader:send("time", love.timer.getTime())
+function S.update(dt)
+    S._time = S._time + dt
+    if S._aberration > S._aberration_target then
+        S._aberration = S._aberration - S._aberration_rate * dt
+        if S._aberration < S._aberration_target then
+            S._aberration = S._aberration_target
         end
-        love.graphics.setShader(Shader._shader)
-    end
-
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(Shader._canvas, 0, 0)
-
-    love.graphics.setShader()
-end
-
--- ============================================================
--- SOFTWARE FALLBACK
--- ============================================================
-
-function Shader._draw_software()
-    local w, h = love.graphics.getDimensions()
-
-    -- Scanlines: 1px lines every 4px at 4% black
-    love.graphics.setColor(0, 0, 0, 0.04)
-    for y = 0, h, 4 do
-        love.graphics.rectangle("fill", 0, y, w, 1)
-    end
-
-    -- Vignette: concentric dark rectangles from edges inward
-    local steps = 12
-    for i = 1, steps do
-        local frac  = i / steps
-        local alpha = (1 - frac) * (1 - frac) * 0.45
-        love.graphics.setColor(0, 0, 0, alpha)
-        local inset = (i - 1) * (math.min(w, h) * 0.04)
-        love.graphics.rectangle("line",
-            inset, inset,
-            w - inset * 2, h - inset * 2)
-    end
-
-    love.graphics.setColor(1, 1, 1, 1)
-end
-
--- ============================================================
--- UPDATE (called every frame from TG.Hooks.update)
--- ============================================================
-
-function Shader.update(dt)
-    if Shader._shader and Shader._shader:hasUniform("time") then
-        Shader._shader:send("time", love.timer.getTime())
     end
 end
 
 -- ============================================================
--- ACCESSORS
+-- ABERRATION SPIKE
 -- ============================================================
 
-function Shader.is_active()
-    return Shader._ok
+function S.spike_aberration(amount, duration_factor)
+    S._aberration = math.min(0.025, (amount or 0.008))
+    S._aberration_rate = duration_factor and (3.0 / duration_factor) or 3.0
 end
 
-return Shader
+return S
