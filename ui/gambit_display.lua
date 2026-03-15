@@ -50,24 +50,24 @@ local function game_to_screen(gx, gy)
     return sx, sy
 end
 
--- Get card's screen position from its VT table (visual transform)
+-- Get card's screen position from its VT table (visual transform).
+-- Balatro stores VT.x/y in game units (small integers, e.g. 5–15).
+-- Multiply by G.TILESCALE * G.TILESIZE to convert to screen pixels.
+-- VT.w/h are also in game units — scale them too.
 local function card_screen_pos(card)
     if not card then return nil, nil end
-    -- Balatro cards store position in card.T (actual) or card.VT (visual)
     local vt = card.VT or card.T
-    if not vt then return nil, nil end
-    -- VT coordinates are already in game space; convert to screen
-    local sx, sy
-    if vt.x and vt.y then
-        sx = vt.x
-        sy = vt.y
-        if G and G.TILESCALE and G.TILESIZE then
-            -- Already in screen coords if VT is populated by Balatro's layout engine
-            -- Try using them directly first
-        end
-        return sx, sy, vt.w, vt.h
-    end
-    return nil, nil, nil, nil
+    if not vt then return nil, nil, nil, nil end
+    if not (vt.x and vt.y) then return nil, nil, nil, nil end
+
+    local scale = (G and G.TILESCALE and G.TILESIZE)
+                  and (G.TILESCALE * G.TILESIZE) or 1
+
+    local sx = vt.x * scale   -- center x in screen pixels
+    local sy = vt.y * scale   -- center y in screen pixels
+    local cw = vt.w and (vt.w * scale) or nil
+    local ch = vt.h and (vt.h * scale) or nil
+    return sx, sy, cw, ch
 end
 
 -- ============================================================
