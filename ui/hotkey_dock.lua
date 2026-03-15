@@ -125,7 +125,10 @@ function Dock.handle_click(mx, my)
     for i, id in ipairs(ids) do
         local sq_x = start_x + (i - 1) * (SQUARE_SIZE + SQUARE_GAP)
         if mx >= sq_x and mx < sq_x + SQUARE_SIZE then
-            return id
+            if TG and TG.Switching then
+                TG.Switching.execute_switch(id)
+            end
+            return true
         end
     end
     return nil

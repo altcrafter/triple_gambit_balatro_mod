@@ -75,6 +75,9 @@ function Chyron.draw()
     if not TG or not TG.initialized then return end
     if not TG.Phosphor then return end
 
+    -- Self-update time if main.lua isn't calling Chyron.update(dt)
+    _time = love.timer and love.timer.getTime() or _time
+
     local board = active_board()
     if not board then return end
 
