@@ -49,6 +49,7 @@ local function load_ui()
     TG.UI.Shader             = tg_require("ui/tg_shader")
     TG.UI.ChipStackUI        = tg_require("ui/gambit_chip_ui")
     TG.UI.CardDeal           = tg_require("ui/card_deal")
+    TG.UI.ScoreHit           = tg_require("ui/score_hit")
     TG.Audio                 = tg_require("core/audio")
     tg_require("ui/debug_overlay")   -- coordinate debug tool, toggle with `
     if TG.Phosphor       then TG.Phosphor.init()            end
@@ -230,6 +231,12 @@ local function on_score_calculated()
                 end)
             end
         end
+    end
+
+    -- Score hit animation
+    if total_scored > 0 and TG.UI and TG.UI.ScoreHit then
+        TG.UI.ScoreHit.trigger(board_id)
+        TG.UI.ScoreHit.trigger_burst(board_id)
     end
 
     -- JokerBridge restore
@@ -668,6 +675,7 @@ function TG.Hooks.draw()
         if TG.UI.GambitDisplay   then TG.UI.GambitDisplay.draw_all() end
         if TG.UI.ChipStackUI     then TG.UI.ChipStackUI.draw()      end
         if TG.UI.CardDeal        then TG.UI.CardDeal.draw()         end
+        if TG.UI.ScoreHit        then TG.UI.ScoreHit.draw()         end
     end
 
     -- Kinetic overlay (particles + popups) — always on top
@@ -687,6 +695,11 @@ function TG.Hooks.update(dt)
     if TG.Kinetics            then TG.Kinetics.update(dt)                 end
     if TG.UI and TG.UI.Atmosphere then TG.UI.Atmosphere.update(dt)       end
     if TG.UI and TG.UI.CardDeal   then TG.UI.CardDeal.update(dt)         end
+    if TG.UI and TG.UI.ScoreHit   then
+        TG.UI.ScoreHit.update(dt)
+        TG.UI.ScoreHit.update_burst(dt)
+    end
+    if TG.UI and TG.UI.StatusBar  then TG.UI.StatusBar.update(dt)        end
     if TG.UI and TG.UI.BoardTransition then TG.UI.BoardTransition.update(dt) end
     if TG.UI and TG.UI.ResourceDisplay then TG.UI.ResourceDisplay.update_shake(dt) end
     if TG.UI and TG.UI.ChipStackUI    then TG.UI.ChipStackUI.update(dt)           end

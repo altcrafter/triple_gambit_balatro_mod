@@ -1,23 +1,12 @@
 --[[
     TRIPLE GAMBIT - ui/status_bar.lua
     Board command strip across the top. 4 equal cells.
-
-    Each cell:
-      · Left accent bar  — board color, full opacity active, 25% inactive, mint cleared
-      · Bloom behind accent bar when active (additive soft spread)
-      · Active cell: faint board-color background tint
-      · Board letter  — large serif, glow when active
-      · Money         — gold mono, vertically centred right of letter
-      · Gambit pennant — below money when a hand-type lock is active
-      · "CLEARED"      — replaces money+pennant when board is cleared
-
-    Dividers: 2px vertical lines, white 12%.
-    All sizes scale from BASE_SH so the bar looks right at any resolution.
+    VELOCI MAISON edition: A · APEX format, rev counter arc, checkered CLEARED.
 ]]
 
 local StatusBar = {}
 
-local BASE_SH = 540   -- design baseline height; scale = sh / BASE_SH
+local BASE_SH = 540
 
 local BOARD_UI_COLORS = {
     A = { 1.0,   0.176, 0.42  },
@@ -28,8 +17,8 @@ local BOARD_UI_COLORS = {
 
 local BOARD_NAMES = {
     A = "APEX",
-    B = "BLAZE",
-    C = "CHROME",
+    B = "NOCTURNE",
+    C = "SOLAR",
     D = "DRIFT",
 }
 
@@ -47,6 +36,10 @@ local HAND_SHORTCODES = {
 }
 
 local _cell_rects = {}
+local _time       = 0
+
+-- Rev counter arc: tracks per switch-in animation
+local _rev_arc = { id = nil, progress = 0.0, duration = 0.30 }
 
 -- ============================================================
 -- HELPERS
@@ -74,6 +67,22 @@ end
 
 local function board_color(id)
     return BOARD_UI_COLORS[id] or { 1, 1, 1 }
+end
+
+-- ============================================================
+-- UPDATE
+-- ============================================================
+
+function StatusBar.update(dt)
+    _time = _time + dt
+    if _rev_arc.id then
+        _rev_arc.progress = math.min(1.0, _rev_arc.progress + dt / _rev_arc.duration)
+    end
+end
+
+function StatusBar.on_board_switch(to_id)
+    _rev_arc.id       = to_id
+    _rev_arc.progress = 0.0
 end
 
 -- ============================================================
@@ -118,16 +127,15 @@ function StatusBar.draw()
     local scale  = sh / BASE_SH
 
     -- ── Sizes ──────────────────────────────────────────────────
-    local bh      = math.floor(73  * scale)   -- bar height  ~120px at 889
-    local accent  = math.floor(7   * scale)   -- accent bar  ~12px
-    local l_size  = math.floor(34  * scale)   -- letter font ~56px (kept for cleared/fallback)
-    local name_sz = math.floor(16  * scale)   -- brand name font ~27px at 889
-    local m_size  = math.floor(14  * scale)   -- money font  ~23px
-    local c_size  = math.floor(12  * scale)   -- "CLEARED"   ~20px
-    local pad     = math.floor(6   * scale)   -- gen padding ~10px
-    local pen_h   = math.floor(17  * scale)   -- pennant h   ~28px
-    local pen_pt  = math.floor(7   * scale)   -- pennant pt  ~12px
-    local sep_w   = math.max(2, math.floor(2 * scale))  -- separator ~3px
+    local bh      = math.floor(73  * scale)
+    local accent  = math.floor(7   * scale)
+    local name_sz = math.floor(16  * scale)
+    local m_size  = math.floor(14  * scale)
+    local c_size  = math.floor(12  * scale)
+    local pad     = math.floor(6   * scale)
+    local pen_h   = math.floor(17  * scale)
+    local pen_pt  = math.floor(7   * scale)
+    local sep_w   = math.max(2, math.floor(2 * scale))
 
     local ids    = board_ids()
     local n      = #ids
@@ -137,7 +145,6 @@ function StatusBar.draw()
     love.graphics.setColor(0.010, 0.003, 0.032, 0.92)
     love.graphics.rectangle("fill", 0, 0, w, bh)
 
-    -- Bottom border
     love.graphics.setColor(1, 1, 1, 0.08)
     love.graphics.setLineWidth(1)
     love.graphics.line(0, bh, w, bh)
@@ -154,8 +161,23 @@ function StatusBar.draw()
 
         _cell_rects[i] = { x = cx0, y = 0, w = cell_w, h = bh, id = id }
 
-        -- ── Active background tint ────────────────────────────
-        if active then
+        -- ── Active background tint / Cleared checkered ───────
+        if cleared then
+            -- Checkered flag tint
+            local check_sz = math.max(6, math.floor(7 * scale))
+            local cols = math.ceil(cell_w / check_sz) + 1
+            local rows = math.ceil(bh / check_sz) + 1
+            for row = 0, rows - 1 do
+                for col = 0, cols - 1 do
+                    if (row + col) % 2 == 0 then
+                        love.graphics.setColor(1, 1, 1, 0.04)
+                        love.graphics.rectangle("fill",
+                            cx0 + col * check_sz, row * check_sz,
+                            check_sz, check_sz)
+                    end
+                end
+            end
+        elseif active then
             love.graphics.setColor(bc[1], bc[2], bc[3], 0.08)
             love.graphics.rectangle("fill", cx0, 0, cell_w, bh)
         end
@@ -165,7 +187,6 @@ function StatusBar.draw()
         love.graphics.setColor(ac[1], ac[2], ac[3], acc_a)
         love.graphics.rectangle("fill", cx0, 0, accent, bh)
 
-        -- Soft bloom behind accent (active only)
         if active then
             love.graphics.setBlendMode("add")
             love.graphics.setColor(bc[1], bc[2], bc[3], 0.14)
@@ -182,32 +203,81 @@ function StatusBar.draw()
             love.graphics.setLineWidth(1)
         end
 
-        -- ── Brand name + money stacked, vertically centred as a unit ──
-        local brand    = BOARD_NAMES[id] or id
-        local text_x   = cx0 + accent + pad * 2
+        -- ── Rev counter arc (active board only, on switch-in) ──
+        if active and _rev_arc.id == id and _rev_arc.progress < 1.0 then
+            local arc_prog = _rev_arc.progress
+            -- Smoothstep the arc
+            local eased = arc_prog * arc_prog * (3 - 2 * arc_prog)
+            local arc_r  = math.floor(20 * scale)
+            local arc_cx = cx0 + cell_w - arc_r - math.floor(6 * scale)
+            local arc_cy = math.floor(bh * 0.5)
+            local start_a = math.pi * 0.80
+            local sweep   = math.pi * 1.55 * eased  -- 0 → ~280°
+            if sweep > 0.05 then
+                love.graphics.setLineWidth(math.max(2, math.floor(2.5 * scale)))
+                -- Glow ring (additive)
+                love.graphics.setBlendMode("add")
+                love.graphics.setColor(bc[1], bc[2], bc[3], 0.35)
+                love.graphics.arc("line", "open", arc_cx, arc_cy, arc_r + 1, start_a, start_a + sweep)
+                love.graphics.setBlendMode("alpha")
+                -- Main arc
+                love.graphics.setColor(bc[1], bc[2], bc[3], 0.90)
+                love.graphics.arc("line", "open", arc_cx, arc_cy, arc_r, start_a, start_a + sweep)
+                love.graphics.setLineWidth(1)
+            end
+        elseif active and _rev_arc.id == id then
+            -- Hold full arc at rest (dim)
+            local arc_r  = math.floor(20 * scale)
+            local arc_cx = cx0 + cell_w - arc_r - math.floor(6 * scale)
+            local arc_cy = math.floor(bh * 0.5)
+            love.graphics.setLineWidth(math.max(1, math.floor(1.5 * scale)))
+            love.graphics.setColor(bc[1], bc[2], bc[3], 0.22)
+            love.graphics.arc("line", "open", arc_cx, arc_cy, arc_r, math.pi * 0.80, math.pi * 0.80 + math.pi * 1.55)
+            love.graphics.setLineWidth(1)
+        end
+
+        -- ── Brand name + money stacked ─────────────────────────
+        local brand  = (id or "?") .. " · " .. (BOARD_NAMES[id] or id)
+        local text_x = cx0 + accent + pad * 2
 
         local lc, lg, la
         if active then
             lc, lg, la = bc, 0.65, 1.0
         elseif cleared then
-            lc, lg, la = CLEARED_COLOR, 0.15, 0.85
+            -- Slow pulse glow on cleared boards
+            local pulse = 0.5 + math.sin(_time * 2.0) * 0.3
+            lc, lg, la  = CLEARED_COLOR, 0.15 * pulse, 0.85
         else
             lc, lg, la = { 1, 1, 1 }, 0.0, 0.22
         end
 
+        -- Score hit scale: check TG.UI.ScoreHit for letter scale
+        local letter_scale = 1.0
+        if TG.UI and TG.UI.ScoreHit then
+            letter_scale = TG.UI.ScoreHit.get_scale(id)
+        end
+
         if board then
             if cleared then
-                -- Show brand name + "CLEARED" stacked
-                local name_h    = TG.Phosphor.height("mono", name_sz)
-                local cl_h      = TG.Phosphor.height("mono", c_size)
-                local stack_h   = name_h + 4 + cl_h
-                local top_y     = math.floor((bh - stack_h) * 0.5)
+                local name_h  = TG.Phosphor.height("mono", name_sz)
+                local cl_h    = TG.Phosphor.height("mono", c_size)
+                local stack_h = name_h + 4 + cl_h
+                local top_y   = math.floor((bh - stack_h) * 0.5)
 
+                if letter_scale ~= 1.0 then
+                    local cx2 = text_x + TG.Phosphor.width(brand, "mono", name_sz) * 0.5
+                    local cy2 = top_y + name_h * 0.5
+                    love.graphics.push()
+                    love.graphics.translate(cx2, cy2)
+                    love.graphics.scale(letter_scale, letter_scale)
+                    love.graphics.translate(-cx2, -cy2)
+                end
                 TG.Phosphor.draw(brand, text_x, top_y, lc, lg, "mono", name_sz, la)
+                if letter_scale ~= 1.0 then love.graphics.pop() end
+
                 TG.Phosphor.draw("CLEARED", text_x, top_y + name_h + 4,
                                  CLEARED_COLOR, 0.6, "mono", c_size, 0.95)
             else
-                -- Brand name on top, money below — stacked, unit centred in bh
                 local money   = board.money or 0
                 local money_s = "$" .. tostring(money)
                 local name_h  = TG.Phosphor.height("mono", name_sz)
@@ -215,7 +285,16 @@ function StatusBar.draw()
                 local stack_h = name_h + 4 + mon_h
                 local top_y   = math.floor((bh - stack_h) * 0.5)
 
+                if letter_scale ~= 1.0 then
+                    local cx2 = text_x + TG.Phosphor.width(brand, "mono", name_sz) * 0.5
+                    local cy2 = top_y + name_h * 0.5
+                    love.graphics.push()
+                    love.graphics.translate(cx2, cy2)
+                    love.graphics.scale(letter_scale, letter_scale)
+                    love.graphics.translate(-cx2, -cy2)
+                end
                 TG.Phosphor.draw(brand, text_x, top_y, lc, lg, "mono", name_sz, la)
+                if letter_scale ~= 1.0 then love.graphics.pop() end
 
                 local money_y = top_y + name_h + 4
                 local ma      = active and 1.0 or 0.40
@@ -223,7 +302,6 @@ function StatusBar.draw()
                 TG.Phosphor.draw(money_s, text_x, money_y,
                                  { 1.0, 0.835, 0.31 }, mg, "mono", m_size, ma)
 
-                -- Gambit pennant (below money when lock is active)
                 local G_STATE = (G and G.STATE and G.STATES) and G.STATE
                 local in_shop = G_STATE and G.STATES.SHOP and (G_STATE == G.STATES.SHOP)
                 local glock   = (not in_shop) and get_gambit_lock(id) or nil
@@ -239,7 +317,6 @@ function StatusBar.draw()
                 end
             end
         else
-            -- No board data: just draw the brand name centred
             local name_h = TG.Phosphor.height("mono", name_sz)
             local name_y = math.floor((bh - name_h) * 0.5)
             TG.Phosphor.draw(brand, text_x, name_y, lc, lg, "mono", name_sz, la)

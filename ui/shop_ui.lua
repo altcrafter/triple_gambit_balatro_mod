@@ -26,8 +26,8 @@ local BOARD_UI_COLORS = {
 
 local BOARD_NAMES = {
     A = "APEX",
-    B = "BLAZE",
-    C = "CHROME",
+    B = "NOCTURNE",
+    C = "SOLAR",
     D = "DRIFT",
 }
 
@@ -142,7 +142,7 @@ function ShopUI.draw()
 
         -- ── Brand name ──────────────────────────────────────────
         local name_sz  = math.floor(11 * (sh / BASE_SH))
-        local brand    = BOARD_NAMES[id] or id
+        local brand    = (id or "?") .. " · " .. (BOARD_NAMES[id] or id)
         local letter_x = cx0 + S.accent + S.pad * 2
         local lh       = TG.Phosphor.height("mono", name_sz)
         local letter_y = row_y + math.floor((S.tab_h - lh) * 0.5)

@@ -313,7 +313,8 @@ local function draw_channel_badge(t)
         -- "CH3": mono 8px, rgba(255,255,255,0.5), glow 0.2
         local ch_x = pad_x + 16
         local ch_y = pad_y + math.floor((bh - TG.Phosphor.height("mono", 8)) * 0.5)
-        TG.Phosphor.draw("CH3", ch_x, ch_y, { 1, 1, 1 }, 0.2, "mono", 8, 0.5)
+        local ch_label = "CH" .. (TG and TG.active_board_id or "?")
+        TG.Phosphor.draw(ch_label, ch_x, ch_y, { 1, 1, 1 }, 0.2, "mono", 8, 0.5)
     end
 
     love.graphics.setColor(1, 1, 1, 1)

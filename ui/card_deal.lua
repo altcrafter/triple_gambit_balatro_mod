@@ -1,26 +1,18 @@
 --[[
     TRIPLE GAMBIT - ui/card_deal.lua
-    NEW. Staggered card entrance animation on board switch.
-    Approach B (spec default): translates the entire hand area down + fades in.
-    If per-card stagger is needed, promote to Approach A (Card:draw hook).
+    Staggered card entrance animation on board switch.
+    Right-edge reveal: right side of hand clears first, left side last.
+    Simulates cards dealing in from the right.
 ]]
 
 local CardDeal = {}
 
-CardDeal._timer    = nil   -- nil = no animation, 0+ = active
-CardDeal._duration = 0.5   -- total animation window in seconds
-
--- ============================================================
--- TRIGGER (Kara calls this after execute_switch populates G.hand)
--- ============================================================
+CardDeal._timer    = nil
+CardDeal._duration = 0.38
 
 function CardDeal.trigger()
     CardDeal._timer = 0
 end
-
--- ============================================================
--- UPDATE
--- ============================================================
 
 function CardDeal.update(dt)
     if CardDeal._timer == nil then return end
@@ -30,62 +22,55 @@ function CardDeal.update(dt)
     end
 end
 
--- ============================================================
--- GET CARD OFFSET (per-card stagger for Approach A if ever needed)
--- Returns { y = offset_px, alpha = 0-1 }
--- card_index: 1-based
--- ============================================================
-
-function CardDeal.get_card_offset(card_index)
-    if CardDeal._timer == nil then
-        return { y = 0, alpha = 1 }
-    end
-
-    local card_delay = (card_index - 1) * 0.08
-    local card_phase = (CardDeal._timer - card_delay) / 0.12
-    card_phase = math.max(0, math.min(1, card_phase))
-
-    -- Quadratic ease-in
-    local deal_y     = (1 - card_phase * card_phase) * 60
-    local deal_alpha = card_phase
-
-    return { y = deal_y, alpha = deal_alpha }
-end
-
--- ============================================================
--- DRAW (Approach B: whole-hand overlay)
--- Draws a semi-transparent fade-in overlay that lifts off over duration.
--- This is applied as an additive mask on top of the hand area.
--- ============================================================
-
+-- Right-to-left sweep reveal over the hand area
+-- Segments: rightmost clears first, leftmost clears last
 function CardDeal.draw()
     if CardDeal._timer == nil then return end
 
-    local t = CardDeal._timer / CardDeal._duration
-    -- Ease-in: alpha goes from 1 (fully dark) to 0 (transparent)
-    local fade_alpha = math.max(0, 1 - t * t)
-
-    if fade_alpha < 0.01 then return end
-
+    local t  = math.min(1.0, CardDeal._timer / CardDeal._duration)
     local sw, sh = love.graphics.getDimensions()
-    -- Hand area: roughly centered, lower third of screen
-    -- Use a generous overlay region
-    local hand_y = sh * 0.55
-    local hand_h = sh * 0.35
 
-    -- Upward translation: cards appear to rise up from below
-    local lift_offset = (1 - math.min(1, t * 1.5)) * 50
+    -- Hand area (approximate lower portion of screen)
+    local hand_top = sh * 0.48
+    local hand_h   = sh * 0.46
 
-    -- Darken mask from below (simulate cards entering from below screen)
-    love.graphics.setColor(0.012, 0.004, 0.039, fade_alpha * 0.6)
-    love.graphics.rectangle("fill", 0, hand_y + lift_offset, sw, hand_h)
+    -- Use 10 vertical strips; rightmost strip has stagger_offset = 0, leftmost = 0.45
+    local strips = 10
+    for i = 1, strips do
+        -- i=1 is leftmost, i=strips is rightmost
+        local stagger = (strips - i) * (0.45 / strips)  -- left strips lag behind
+        local strip_t = math.max(0, math.min(1, (t - stagger) / (1 - stagger + 0.001)))
+        -- Ease-out: (1 - (1-x)^2)
+        local eased   = 1 - (1 - strip_t) ^ 2
+        local alpha   = math.max(0, 1 - eased * 1.4) * 0.88
+
+        if alpha > 0.005 then
+            local strip_x = sw * (i - 1) / strips
+            local strip_w = sw / strips + 1
+            love.graphics.setColor(0.012, 0.004, 0.039, alpha)
+            love.graphics.rectangle("fill", strip_x, hand_top, strip_w, hand_h)
+        end
+    end
+
+    -- Leading edge shimmer (board color flash sweeping left)
+    if t < 0.75 and TG and TG.active_board_id then
+        local bc = ({
+            A = { 1.0,   0.176, 0.42  },
+            B = { 0.0,   0.898, 1.0   },
+            C = { 1.0,   0.667, 0.133 },
+            D = { 0.706, 0.302, 1.0   },
+        })[TG.active_board_id] or { 1, 1, 1 }
+        -- Leading edge x: sweeps from right (sw) to left (0)
+        local edge_x = sw * (1 - t / 0.75)
+        local edge_a = (1 - t / 0.75) * 0.55
+        love.graphics.setBlendMode("add")
+        love.graphics.setColor(bc[1], bc[2], bc[3], edge_a)
+        love.graphics.rectangle("fill", edge_x - 4, hand_top, 8, hand_h)
+        love.graphics.setBlendMode("alpha")
+    end
 
     love.graphics.setColor(1, 1, 1, 1)
 end
-
--- ============================================================
--- ACTIVE CHECK
--- ============================================================
 
 function CardDeal.is_active()
     return CardDeal._timer ~= nil

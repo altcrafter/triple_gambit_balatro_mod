@@ -19,8 +19,8 @@ local BOARD_UI_COLORS = {
 
 local BOARD_NAMES = {
     A = "APEX",
-    B = "BLAZE",
-    C = "CHROME",
+    B = "NOCTURNE",
+    C = "SOLAR",
     D = "DRIFT",
 }
 
@@ -93,40 +93,47 @@ local function draw_switch(tr)
     local bc     = BOARD_UI_COLORS[tr.to_id] or { 1, 1, 1 }
     local scale  = h / 540
 
-    -- ── Phase 0: Full-screen launch flash + white center burst (0.0–0.07) ──
-    if p < 0.07 then
-        local t      = p / 0.07
-        local board_a = (1 - t) * 0.55
-        love.graphics.setColor(bc[1], bc[2], bc[3], board_a)
-        love.graphics.rectangle("fill", 0, 0, sw, h)
-
-        local burst_a = (1 - t) * 0.70
+    -- ── Phase 0: White vignette flash (0.0–0.09) ──────────────────────────
+    if p < 0.09 then
+        local t = p / 0.09
+        -- Edge vignette: bright at screen border, fades to center
+        local flash_a = (1 - t) * 0.90
         love.graphics.setBlendMode("add")
-        love.graphics.setColor(1, 1, 1, burst_a)
-        love.graphics.rectangle("fill", sw * 0.3, h * 0.3, sw * 0.4, h * 0.4)
+        -- Top edge
+        love.graphics.setColor(1, 1, 1, flash_a * 0.7)
+        love.graphics.rectangle("fill", 0, 0, sw, h * 0.35)
+        -- Bottom edge
+        love.graphics.rectangle("fill", 0, h * 0.65, sw, h * 0.35)
+        -- Left edge
+        love.graphics.rectangle("fill", 0, 0, sw * 0.30, h)
+        -- Right edge
+        love.graphics.rectangle("fill", sw * 0.70, 0, sw * 0.30, h)
         love.graphics.setBlendMode("alpha")
+        -- Board-color center tint
+        love.graphics.setColor(bc[1], bc[2], bc[3], (1 - t) * 0.40)
+        love.graphics.rectangle("fill", 0, 0, sw, h)
     end
 
-    -- ── Phase 1: Speed streaks (0.03–0.55) ──────────────────────────────
-    if p >= 0.03 and p < 0.55 then
-        local t          = (p - 0.03) / 0.52
-        local intensity  = t < 0.5 and (t / 0.5) or power_decay((t - 0.5) / 0.5, 1.5)
-        local vanish_x   = math.floor(sw * 0.08)   -- left vanishing point
+    -- ── Phase 1: Speed streaks (0.0–0.28, ~180ms) ────────────────────────
+    if p < 0.28 then
+        local t = p / 0.28
+        local intensity = t < 0.4 and (t / 0.4) or power_decay((t - 0.4) / 0.6, 1.2)
+        local vanish_x  = math.floor(sw * 0.05)
 
         if intensity > 0.01 then
             for _, band in ipairs(tr.bands) do
-                local by  = (band.y / 100) * h
-                local bth = math.max(1, band.height * scale)
-                -- Each streak starts at vanishing point, fans out right
+                local by    = (band.y / 100) * h
+                local bth   = math.max(2, band.height * scale * 1.4)
                 local spread = intensity * (sw - vanish_x)
-                love.graphics.setColor(bc[1], bc[2], bc[3], 0.45 * intensity)
+                -- Main streak
+                love.graphics.setColor(bc[1], bc[2], bc[3], 0.55 * intensity)
                 love.graphics.rectangle("fill", vanish_x, by, spread, bth)
-                -- Bright core
-                local core_h = math.max(1, math.floor(bth * 0.4))
+                -- Bright additive core
+                local core_h = math.max(1, math.floor(bth * 0.35))
                 love.graphics.setBlendMode("add")
-                love.graphics.setColor(bc[1], bc[2], bc[3], 0.30 * intensity)
+                love.graphics.setColor(1, 1, 1, 0.35 * intensity)
                 love.graphics.rectangle("fill", vanish_x, by + math.floor((bth - core_h) * 0.5),
-                                        spread, core_h)
+                                        spread * 0.6, core_h)
                 love.graphics.setBlendMode("alpha")
             end
         end
@@ -140,12 +147,12 @@ local function draw_switch(tr)
         local pad       = math.floor(6  * scale)
 
         local brand     = BOARD_NAMES[tr.to_id] or ("BOARD " .. (tr.to_id or "?"))
-        local text_w    = TG.Phosphor.width(brand, "mono", font_sz)
+        local board_lbl = (tr.to_id or "?") .. "  ·  " .. brand
+        local text_w    = TG.Phosphor.width(board_lbl, "mono", font_sz)
         local plate_w   = accent_w + pad * 3 + text_w + pad * 3
         local plate_y   = math.floor(h * 0.40)
         local rest_x    = math.floor(sw * 0.05)
 
-        -- Plate x position: enter from right, hold, exit left
         local plate_x
         if p < 0.20 then
             local t = smoothstep((p - 0.05) / 0.15)
@@ -157,7 +164,6 @@ local function draw_switch(tr)
             plate_x = math.floor(rest_x + (-(plate_w + math.floor(sw * 0.05)) - rest_x) * t)
         end
 
-        -- Plate alpha (fade in fast, hold full, fade out near exit)
         local plate_a
         if p < 0.10 then
             plate_a = (p - 0.05) / 0.05
@@ -168,7 +174,6 @@ local function draw_switch(tr)
         end
         plate_a = math.max(0, math.min(1, plate_a))
 
-        -- Tilt transform
         local pivot_cx = plate_x + plate_w * 0.5
         local pivot_cy = plate_y + plate_h * 0.5
         love.graphics.push()
@@ -176,11 +181,9 @@ local function draw_switch(tr)
         love.graphics.rotate(math.rad(-1.5))
         love.graphics.translate(-pivot_cx, -pivot_cy)
 
-        -- Dark panel background
         love.graphics.setColor(0.014, 0.006, 0.040, 0.93 * plate_a)
         love.graphics.rectangle("fill", plate_x, plate_y, plate_w, plate_h)
 
-        -- Left accent bar + bloom
         love.graphics.setBlendMode("add")
         love.graphics.setColor(bc[1], bc[2], bc[3], 0.45 * plate_a)
         love.graphics.rectangle("fill", plate_x, plate_y, accent_w * 5, plate_h)
@@ -188,11 +191,10 @@ local function draw_switch(tr)
         love.graphics.setColor(bc[1], bc[2], bc[3], plate_a)
         love.graphics.rectangle("fill", plate_x, plate_y, accent_w, plate_h)
 
-        -- Brand name text
-        local text_x  = plate_x + accent_w + pad * 2
-        local text_y  = plate_y + math.floor((plate_h - TG.Phosphor.height("mono", font_sz)) * 0.5)
+        local text_x   = plate_x + accent_w + pad * 2
+        local text_y   = plate_y + math.floor((plate_h - TG.Phosphor.height("mono", font_sz)) * 0.5)
         local lbl_glow = 2.4 * plate_a
-        TG.Phosphor.draw(brand, text_x, text_y, bc, lbl_glow, "mono", font_sz, plate_a)
+        TG.Phosphor.draw(board_lbl, text_x, text_y, bc, lbl_glow, "mono", font_sz, plate_a)
 
         love.graphics.pop()
     end
@@ -204,13 +206,9 @@ local function draw_switch(tr)
             local edge_th = math.max(2, math.floor(5 * scale * edge_a))
             love.graphics.setBlendMode("add")
             love.graphics.setColor(bc[1], bc[2], bc[3], edge_a)
-            -- Top
             love.graphics.rectangle("fill", 0, 0, sw, edge_th)
-            -- Bottom
             love.graphics.rectangle("fill", 0, h - edge_th, sw, edge_th)
-            -- Left
             love.graphics.rectangle("fill", 0, 0, edge_th, h)
-            -- Right
             love.graphics.rectangle("fill", sw - edge_th, 0, edge_th, h)
             love.graphics.setBlendMode("alpha")
         end
