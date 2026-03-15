@@ -116,6 +116,9 @@ function TG.Switching.execute_switch(to_id)
     if TG.UI and TG.UI.CardDeal then
         TG.UI.CardDeal.trigger()
     end
+    if TG.UI and TG.UI.Atmosphere then
+        TG.UI.Atmosphere.on_board_switch(to_id)
+    end
 
     print(string.format("[TG] Switched: %s → %s", from_id, to_id))
 end

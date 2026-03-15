@@ -51,10 +51,11 @@ local function load_ui()
     TG.UI.CardDeal           = tg_require("ui/card_deal")
     TG.Audio                 = tg_require("core/audio")
     tg_require("ui/debug_overlay")   -- coordinate debug tool, toggle with `
-    if TG.Phosphor  then TG.Phosphor.init()            end
-    if TG.Audio     then TG.Audio.init()               end
-    if TG.UI.Shader then TG.UI.Shader.init()           end
-    if TG.Kinetics  then TG.Kinetics.init_particles()  end
+    if TG.Phosphor       then TG.Phosphor.init()            end
+    if TG.Audio          then TG.Audio.init()               end
+    if TG.UI.Shader      then TG.UI.Shader.init()           end
+    if TG.Kinetics       then TG.Kinetics.init_particles()  end
+    if TG.UI.Atmosphere  then TG.UI.Atmosphere.init()       end
     ui_loaded = true
 end
 

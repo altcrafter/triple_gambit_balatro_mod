@@ -26,9 +26,8 @@ local HAND_SHORTCODES = {
     ["High Card"]       = "HC",
 }
 
-local BADGE_H       = 24
-local BADGE_ACCENT  = 4
-local BADGE_FONT_SZ = 11
+-- Sizes computed in draw_badge() from sh
+local BASE_SH = 540
 local BADGE_CREAM   = { 1.0, 0.961, 0.902 }  -- rgba(255,245,230) warm white/cream
 
 -- ============================================================
@@ -91,18 +90,23 @@ end
 local function draw_badge(sx, sy, card_w, card_h, gambit)
     if not gambit or not TG or not TG.Phosphor then return end
 
-    local id  = gambit.board
-    local bc  = BOARD_UI_COLORS[id] or { 1, 1, 1 }
-    local sc  = HAND_SHORTCODES[gambit.hand_type] or "??"
-    local label = sc
+    local _, sh = love.graphics.getDimensions()
+    local scale    = sh / BASE_SH
+    local badge_h  = math.floor(24 * scale)   -- ~40px at 889
+    local point    = math.floor(8  * scale)   -- ~13px
+    local font_sz  = math.floor(11 * scale)   -- ~18px
+    local text_pad = math.floor(4  * scale)   -- ~7px
 
-    local badge_y = sy + (card_h or 80) - BADGE_H
+    local id    = gambit.board
+    local bc    = BOARD_UI_COLORS[id] or { 1, 1, 1 }
+    local label = (HAND_SHORTCODES[gambit.hand_type] or "??")
+               .. "+" .. tostring(gambit.level_boost or 0)
+
+    local badge_y = sy + (card_h or 80) - badge_h
     local badge_x = sx
 
-    -- Pennant shape: rectangle with triangular point on right edge
-    local h     = BADGE_H - 4
-    local point = 8
-    local pen_w = TG.Phosphor.width(label, "mono", BADGE_FONT_SZ) + 10
+    local h     = badge_h - math.floor(4 * scale)
+    local pen_w = TG.Phosphor.width(label, "mono", font_sz) + text_pad * 2
     local mid_y = badge_y + h * 0.5
     local x0    = badge_x
     local x1    = badge_x + pen_w
@@ -116,7 +120,6 @@ local function draw_badge(sx, sy, card_w, card_h, gambit)
         x0, badge_y + h,
     }
 
-    -- Pivot: center of bounding box, +3° CW
     local pivot_x = badge_x + (pen_w + point) * 0.5
     local pivot_y = mid_y
 
@@ -125,18 +128,15 @@ local function draw_badge(sx, sy, card_w, card_h, gambit)
     love.graphics.rotate(math.rad(3))
     love.graphics.translate(-pivot_x, -pivot_y)
 
-    -- Fill
     love.graphics.setColor(bc[1], bc[2], bc[3], 0.10)
     love.graphics.polygon("fill", verts)
-    -- Stroke
     love.graphics.setColor(bc[1], bc[2], bc[3], 0.25)
     love.graphics.setLineWidth(1)
     love.graphics.polygon("line", verts)
 
-    -- Text: mono 7px, board color 80%, glow 0.2
-    local text_x = badge_x + 4
-    local text_y = badge_y + math.floor((h - TG.Phosphor.height("mono", BADGE_FONT_SZ)) * 0.5)
-    TG.Phosphor.draw(label, text_x, text_y, bc, 0.2, "mono", BADGE_FONT_SZ, 0.80)
+    local text_x = badge_x + text_pad
+    local text_y = badge_y + math.floor((h - TG.Phosphor.height("mono", font_sz)) * 0.5)
+    TG.Phosphor.draw(label, text_x, text_y, bc, 0.2, "mono", font_sz, 0.80)
 
     love.graphics.pop()
 end

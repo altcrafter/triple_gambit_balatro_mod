@@ -126,8 +126,8 @@ local function update_gradient_mesh(t)
         local y = STOP_Y_FRAC[i] * h
         local vi_left  = (i - 1) * 2 + 1
         local vi_right = vi_left + 1
-        _gradient_mesh:setVertex(vi_left,  0, y, 0, 0, r, g, b, 0.7)
-        _gradient_mesh:setVertex(vi_right, w, y, 0, 0, r, g, b, 0.7)
+        _gradient_mesh:setVertex(vi_left,  0, y, 0, 0, r, g, b, 0.22)
+        _gradient_mesh:setVertex(vi_right, w, y, 0, 0, r, g, b, 0.22)
     end
 end
 
@@ -166,8 +166,9 @@ local function draw_sun(t)
     local sun_x = w / 2
     local sun_y = h * (0.52 + math.sin(t * 0.04 * 2 * math.pi) * 0.08)
     local radius = 70 + math.sin(t * 0.5) * 4
-    local alpha  = 0.4 + math.sin(t * 0.3) * 0.08
+    local alpha  = 0.12 + math.sin(t * 0.3) * 0.03
 
+    love.graphics.setBlendMode("add")
     if _sun_canvas then
         local scale = radius * 2 / 256
         love.graphics.setColor(1, 1, 1, alpha)
@@ -177,6 +178,7 @@ local function draw_sun(t)
         love.graphics.setColor(1.0, 0.784, 0.314, alpha * 0.6)
         love.graphics.circle("fill", sun_x, sun_y, radius)
     end
+    love.graphics.setBlendMode("alpha")
 
     -- Venetian blind lines below the sun
     local board_c = active_board_color()
@@ -237,15 +239,17 @@ local function draw_wash(t)
     local base_r = w * 0.4
     local c = _wash_current
 
-    -- Concentric circles for radial falloff
+    -- Concentric circles for radial falloff (additive so they tint without covering)
+    love.graphics.setBlendMode("add")
     local steps = 10
     for i = steps, 1, -1 do
         local frac   = i / steps
         local radius = base_r * frac
-        local alpha  = (1 - frac) * 0.16
+        local alpha  = (1 - frac) * 0.07
         love.graphics.setColor(c[1], c[2], c[3], alpha)
         love.graphics.circle("fill", cx, cy, radius)
     end
+    love.graphics.setBlendMode("alpha")
 
     love.graphics.setColor(1, 1, 1, 1)
 end
@@ -356,10 +360,40 @@ function Atm.update(dt)
 end
 
 function Atm.draw()
-    -- Full-screen atmosphere layers (gradient, sun, grid, color wash, VHS) are
-    -- drawn AFTER Balatro's own draw call, which means they sit on top of cards,
-    -- the score display and all native UI — making the game unplayable.
-    -- Only keep the channel badge, which is a small corner decoration.
+    local w, h = love.graphics.getDimensions()
+
+    -- All background layers use additive blend so they add color to Balatro's
+    -- dark areas without obscuring cards, buttons, or native UI elements.
+
+    -- 1. Sunset gradient mesh (additive, ~0.22 alpha per vertex)
+    if _gradient_mesh then
+        love.graphics.setBlendMode("add")
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(_gradient_mesh)
+        love.graphics.setBlendMode("alpha")
+    else
+        -- Fallback if mesh failed to build: very subtle warm tint
+        love.graphics.setBlendMode("add")
+        love.graphics.setColor(0.10, 0.04, 0.20, 0.10)
+        love.graphics.rectangle("fill", 0, 0, w, h)
+        love.graphics.setBlendMode("alpha")
+    end
+
+    -- 2. Sun disc + venetian blinds
+    draw_sun(_time)
+
+    -- 3. Perspective grid floor
+    draw_grid(_time, active_board_color())
+
+    -- 4. Board color wash
+    draw_wash(_time)
+
+    -- 5. VHS rolling bars
+    draw_vhs(_time)
+
+    -- 6. Scanlines + vignette: handled by tg_shader.lua
+
+    -- 7. Channel badge (normal alpha — it needs to be a readable dark pill)
     draw_channel_badge(_time)
 end
 
