@@ -50,6 +50,7 @@ local function load_ui()
     TG.UI.ChipStackUI        = tg_require("ui/gambit_chip_ui")
     TG.UI.CardDeal           = tg_require("ui/card_deal")
     TG.Audio                 = tg_require("core/audio")
+    tg_require("ui/debug_overlay")   -- coordinate debug tool, toggle with `
     if TG.Phosphor  then TG.Phosphor.init()            end
     if TG.Audio     then TG.Audio.init()               end
     if TG.UI.Shader then TG.UI.Shader.init()           end
@@ -818,9 +819,10 @@ function love.draw(...)
     TG.Hooks.draw()
 end
 
-local _prev_state  = nil
-local _shop_open   = false
-local _orig_update = love.update
+local _prev_state    = nil
+local _shop_open     = false
+local _blind_started = false   -- true once on_blind_start has fired for the current blind
+local _orig_update   = love.update
 function love.update(dt, ...)
     _orig_update(dt, ...)
 
@@ -836,22 +838,22 @@ function love.update(dt, ...)
         on_score_calculated()
     end
 
-    -- Blind start: entering SELECTING_HAND for the first time this blind.
-    -- Only fires on fresh blind entry (not mid-blind after HAND_PLAYED).
-    -- This is the canonical trigger for on_blind_start — NOT Blind:set_blind,
-    -- which fires too early and for previews/mid-defeat animations.
+    -- Blind start / mid-blind resource sync.
+    -- Balatro's post-play cycle: HAND_PLAYED → DRAW_TO_HAND → SELECTING_HAND.
+    -- _blind_started guards so on_blind_start fires exactly once per blind,
+    -- regardless of which intermediate states Balatro passes through.
     if curr == G.STATES.SELECTING_HAND
     and _prev_state ~= G.STATES.SELECTING_HAND
-    and _prev_state ~= G.STATES.HAND_PLAYED
     and TG.initialized then
-        TG.Hooks.on_blind_start()
-    end
-
-    -- After each hand play, re-sync resources (Balatro may drift from TG).
-    if curr == G.STATES.SELECTING_HAND
-    and _prev_state == G.STATES.HAND_PLAYED
-    and TG.initialized then
-        TG:sync_board_resources_to_balatro()
+        if not _blind_started then
+            -- First entry to SELECTING_HAND this blind — fresh blind start.
+            _blind_started = true
+            TG.Hooks.on_blind_start()
+        elseif _prev_state == G.STATES.DRAW_TO_HAND then
+            -- Returning from a hand play (DRAW_TO_HAND is the state before re-deal).
+            -- Re-sync TG's per-board counts into Balatro's counters in case of drift.
+            TG:sync_board_resources_to_balatro()
+        end
     end
 
     _prev_state = curr
@@ -874,7 +876,8 @@ function love.update(dt, ...)
 
     if in_shop_or_pack then
         if not _shop_open then
-            _shop_open = true
+            _shop_open     = true
+            _blind_started = false   -- Next SELECTING_HAND entry is a new blind
             TG.Hooks.on_shop_open()
         end
     else
