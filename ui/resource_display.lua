@@ -175,7 +175,7 @@ function RD.draw()
     local total_w = group_w(max_h) + GROUP_GAP + group_w(max_d) + GROUP_GAP + group_w(nb)
 
     local row_x  = math.floor(sw / 2 - total_w / 2)
-    local row_y  = sh - 72
+    local row_y  = math.floor(sh * 0.42)  -- above the card hand arc
     local mid_y  = row_y + PIP_R
 
     local cx = row_x + PIP_R  -- start at center of first pip

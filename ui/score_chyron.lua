@@ -21,7 +21,6 @@ local BOARD_UI_COLORS = {
 
 local CLEARED_COLOR = { 0.412, 0.941, 0.682 }
 
-local SLAB_W   = 280
 local SLAB_H   = 52
 local ACCENT_W = 3
 
@@ -92,12 +91,13 @@ function Chyron.draw()
     local pulse   = urgency * (0.5 + math.sin(_time * 4 * 2 * math.pi) * 0.5)
 
     local sw, sh = love.graphics.getDimensions()
-    local slab_x = 12
+    local slab_x = 0
     local slab_y = sh - 160
+    local slab_w = math.floor(sw * 0.6)
 
     -- ── Background slab: solid left 60%, fades right 40% ──────
-    local solid_w = math.floor(SLAB_W * 0.60)
-    local fade_w  = SLAB_W - solid_w
+    local solid_w = math.floor(slab_w * 0.60)
+    local fade_w  = slab_w - solid_w
     local steps   = 10
 
     love.graphics.setColor(0.020, 0.008, 0.055, 0.85)
@@ -124,7 +124,7 @@ function Chyron.draw()
     love.graphics.setColor(accent_c[1], accent_c[2], accent_c[3], 1.0)
     love.graphics.rectangle("fill", slab_x, slab_y, ACCENT_W, SLAB_H)
 
-    local content_x = slab_x + ACCENT_W + 7
+    local content_x = ACCENT_W + 7
 
     if cleared then
         -- ── CLEARED STATE ─────────────────────────────────────
