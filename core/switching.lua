@@ -71,6 +71,12 @@ function TG.Switching.execute_switch(to_id)
 
     -- ── 3. Swap jokers via CardArea methods ──
     if G.jokers and G.jokers.cards then
+        -- Save current G.jokers back to from_board (captures pack jokers not yet tracked)
+        from_board.jokers = {}
+        for _, card in ipairs(G.jokers.cards) do
+            table.insert(from_board.jokers, card)
+        end
+        -- Remove and load to_board's jokers
         for i = #G.jokers.cards, 1, -1 do
             G.jokers:remove_card(G.jokers.cards[i])
         end

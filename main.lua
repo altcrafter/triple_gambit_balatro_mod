@@ -50,9 +50,10 @@ local function load_ui()
     TG.UI.ChipStackUI        = tg_require("ui/gambit_chip_ui")
     TG.UI.CardDeal           = tg_require("ui/card_deal")
     TG.Audio                 = tg_require("core/audio")
-    if TG.Audio    then TG.Audio.init()    end
-    if TG.UI.Shader then TG.UI.Shader.init() end
-    if TG.Kinetics  then TG.Kinetics.init_particles() end
+    if TG.Phosphor  then TG.Phosphor.init()            end
+    if TG.Audio     then TG.Audio.init()               end
+    if TG.UI.Shader then TG.UI.Shader.init()           end
+    if TG.Kinetics  then TG.Kinetics.init_particles()  end
     ui_loaded = true
 end
 
@@ -76,6 +77,10 @@ end
 
 local _tg_blind_won        = false
 local _tg_defeat_processed = false
+local _hooks_installed     = false
+
+-- Captured here (before on_score_calculated) so the event closure can see it.
+local orig_blind_defeat
 
 -- Count cleared boards. Returns true when >= BOARDS_TO_CLEAR are cleared.
 local function tg_check_blind_won()
@@ -97,6 +102,7 @@ local function on_run_start()
     _hooks_installed     = false
     _tg_blind_won        = false
     _tg_defeat_processed = false
+    TG._run_lost         = false
     if G and G.FUNCS then
         G.FUNCS._tg_buy_hooked  = nil
         G.FUNCS._tg_sell_hooked = nil
@@ -304,8 +310,6 @@ end
 -- LAZY HOOK INSTALLATION
 -- ============================================================
 
-local _hooks_installed = false
-
 local function install_hooks()
     if _hooks_installed then return end
     if not TG.initialized then return end
@@ -375,6 +379,10 @@ local function install_hooks()
         if G.GAME and G.GAME.current_round then
             G.GAME.current_round.hands_left = active_board.hands_remaining
         end
+        -- Pip drain animation: spent pip is the one that just emptied
+        if TG.UI and TG.UI.ResourceDisplay then
+            TG.UI.ResourceDisplay.on_hand_spent(active_board.hands_remaining + 1)
+        end
 
         -- Snapshot chips before play
         TG._chips_before      = (G.GAME and G.GAME.chips) or 0
@@ -419,6 +427,10 @@ local function install_hooks()
             active_board:use_discard()
             if G.GAME and G.GAME.current_round then
                 G.GAME.current_round.discards_left = active_board.discards_remaining
+            end
+            -- Pip drain animation
+            if TG.UI and TG.UI.ResourceDisplay then
+                TG.UI.ResourceDisplay.on_discard_spent(active_board.discards_remaining + 1)
             end
         end
 
@@ -485,6 +497,21 @@ function TG.Hooks.on_blind_start()
 
     TG:on_blind_start()
 
+    -- Sync any jokers in G.jokers that aren't tracked in board.jokers yet
+    -- (captures jokers obtained from packs, which bypass the shop buy hook)
+    local ab = TG:get_active_board()
+    if ab and G and G.jokers and G.jokers.cards then
+        for _, card in ipairs(G.jokers.cards) do
+            local found = false
+            for _, j in ipairs(ab.jokers) do
+                if j == card then found = true; break end
+            end
+            if not found then
+                table.insert(ab.jokers, card)
+            end
+        end
+    end
+
     -- Initialize deck keys on first blind (G.deck is now populated)
     if G and G.deck and G.deck.cards and #G.deck.cards > 0 then
         for _, id in ipairs(TG.BOARD_IDS) do
@@ -517,6 +544,17 @@ function TG.Hooks.on_shop_open()
         end
         if G.GAME   then G.GAME.dollars = board.money end
         if G.jokers and TG.Switching then
+            -- Capture any untracked jokers into board.jokers first
+            -- (starter jokers, or anything Balatro added before we hooked)
+            if G.jokers.cards then
+                for _, card in ipairs(G.jokers.cards) do
+                    local found = false
+                    for _, j in ipairs(board.jokers) do
+                        if j == card then found = true; break end
+                    end
+                    if not found then table.insert(board.jokers, card) end
+                end
+            end
             -- Sync jokers via CardArea
             if G.jokers.cards then
                 for i = #G.jokers.cards, 1, -1 do
@@ -557,9 +595,24 @@ end
 
 function TG.Hooks.on_shop_close()
     if not TG.initialized then return end
-    if G and G.GAME and TG.Shop and TG.Shop.state and TG.Shop.state.active_board_id then
-        local board = TG:get_board(TG.Shop.state.active_board_id)
-        if board then board.money = G.GAME.dollars end
+    local close_board_id = TG.Shop and TG.Shop.state and TG.Shop.state.active_board_id
+                           or TG.active_board_id
+    local close_board = TG:get_board(close_board_id)
+    if close_board then
+        if G and G.GAME then close_board.money = G.GAME.dollars end
+        -- Capture any pack jokers that Balatro added to G.jokers during shopping
+        if G and G.jokers and G.jokers.cards then
+            for _, card in ipairs(G.jokers.cards) do
+                local found = false
+                for _, j in ipairs(close_board.jokers) do
+                    if j == card then found = true; break end
+                end
+                if not found then
+                    table.insert(close_board.jokers, card)
+                    print(string.format("[TG] on_shop_close: captured joker for board %s", close_board_id))
+                end
+            end
+        end
     end
     if TG.Shop then TG.Shop.close() end
 end
@@ -576,10 +629,17 @@ end
 function TG.Hooks.on_mouse_pressed(x, y)
     if not TG.initialized then return false end
     if TG.UI and TG.UI.StatusBar and TG.UI.StatusBar.handle_click then
-        if TG.UI.StatusBar.handle_click(x, y) then return true end
+        local clicked_board = TG.UI.StatusBar.handle_click(x, y)
+        if clicked_board then
+            TG.Switching.execute_switch(clicked_board)
+            return true
+        end
     end
     if TG.UI and TG.UI.HotkeyDock and TG.UI.HotkeyDock.handle_click then
         if TG.UI.HotkeyDock.handle_click(x, y) then return true end
+    end
+    if TG.UI and TG.UI.ChipStackUI and TG.UI.ChipStackUI.handle_click then
+        if TG.UI.ChipStackUI.handle_click(x, y) then return true end
     end
     return false
 end
@@ -627,7 +687,9 @@ function TG.Hooks.update(dt)
     if TG.UI and TG.UI.CardDeal   then TG.UI.CardDeal.update(dt)         end
     if TG.UI and TG.UI.BoardTransition then TG.UI.BoardTransition.update(dt) end
     if TG.UI and TG.UI.ResourceDisplay then TG.UI.ResourceDisplay.update_shake(dt) end
-    if TG.UI and TG.UI.Shader  then TG.UI.Shader.update(dt)              end
+    if TG.UI and TG.UI.ChipStackUI    then TG.UI.ChipStackUI.update(dt)           end
+    if TG.UI and TG.UI.ScoreChyron    then TG.UI.ScoreChyron.update(dt)           end
+    if TG.UI and TG.UI.Shader         then TG.UI.Shader.update(dt)                end
     if TG.Audio                then TG.Audio.update(dt)                   end
 
     -- Auto-activate gambits on jokers that entered boards via packs
@@ -670,6 +732,9 @@ end
 
 local orig_blind_set = Blind.set_blind
 function Blind:set_blind(blind, size, silent)
+    -- Do NOT call on_blind_start here. Balatro calls set_blind multiple times
+    -- (previews, mid-defeat animations) so firing here resets boards at wrong times.
+    -- on_blind_start is triggered by the SELECTING_HAND state transition instead.
     local r = orig_blind_set(self, blind, size, silent)
     if TG.initialized and G.GAME and G.GAME.ante
     and G.GAME.ante ~= TG._last_seen_ante then
@@ -682,9 +747,14 @@ end
 -- BLIND DEFEAT OVERRIDE
 -- ============================================================
 
-local orig_blind_defeat = Blind.defeat
+orig_blind_defeat = Blind.defeat
 function Blind:defeat(...)
     if TG.initialized then
+        -- Loss path: on_run_lost sets TG._run_lost to bypass suppression.
+        if TG._run_lost then
+            TG._run_lost = false
+            return orig_blind_defeat(self, ...)
+        end
         -- Suppress unless enough boards are cleared (3-of-4)
         if not tg_check_blind_won() then
             return  -- Block — player must keep playing
@@ -765,6 +835,25 @@ function love.update(dt, ...)
     and curr       ~= G.STATES.HAND_PLAYED then
         on_score_calculated()
     end
+
+    -- Blind start: entering SELECTING_HAND for the first time this blind.
+    -- Only fires on fresh blind entry (not mid-blind after HAND_PLAYED).
+    -- This is the canonical trigger for on_blind_start — NOT Blind:set_blind,
+    -- which fires too early and for previews/mid-defeat animations.
+    if curr == G.STATES.SELECTING_HAND
+    and _prev_state ~= G.STATES.SELECTING_HAND
+    and _prev_state ~= G.STATES.HAND_PLAYED
+    and TG.initialized then
+        TG.Hooks.on_blind_start()
+    end
+
+    -- After each hand play, re-sync resources (Balatro may drift from TG).
+    if curr == G.STATES.SELECTING_HAND
+    and _prev_state == G.STATES.HAND_PLAYED
+    and TG.initialized then
+        TG:sync_board_resources_to_balatro()
+    end
+
     _prev_state = curr
 
     -- ═══════════════════════════════════════════════════════════

@@ -242,6 +242,7 @@ end
 
 function TG:on_run_lost(reason)
     self.run_active = false
+    TG._run_lost    = true   -- Signal Blind:defeat to not suppress this call
     if TG.Audio then TG.Audio.play("run_lost") end
     print("[TG] === RUN LOST === " .. tostring(reason))
     if TG.Kinetics then

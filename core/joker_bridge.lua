@@ -45,6 +45,17 @@ function TG.JokerBridge.pre_score()
     local board    = TG:get_board(board_id)
     if not board or not G.jokers then return end
 
+    -- Capture any jokers in G.jokers not yet in board.jokers (e.g., pack acquisitions)
+    if G.jokers.cards then
+        for _, card in ipairs(G.jokers.cards) do
+            local found = false
+            for _, j in ipairs(board.jokers) do
+                if j == card then found = true; break end
+            end
+            if not found then table.insert(board.jokers, card) end
+        end
+    end
+
     -- Save current jokers and remove from G.jokers
     TG.JokerBridge._saved_jokers = {}
     if G.jokers.cards then
