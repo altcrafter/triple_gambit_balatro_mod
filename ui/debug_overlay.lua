@@ -94,6 +94,50 @@ function love.draw()
     love.graphics.setColor(1, 0.45, 0.45, 1)
     love.graphics.print(hint, pad, pad)
 
+    -- ── Card VT positions (hand cards) ───────────────────────
+    -- Shows raw card.VT.x/y so we can verify whether they are screen-space
+    -- or game-unit coordinates. Markers: cyan = raw VT, orange = VT * scale.
+    if G and G.hand and G.hand.cards then
+        local scale = (G.TILESCALE or 1) * (G.TILESIZE or 1)
+        local row_y = sh - (lh + pad * 2) * (#G.hand.cards + 1) - 8
+        love.graphics.setColor(0, 0, 0, 0.75)
+        love.graphics.rectangle("fill", 0, row_y - 4,
+            font:getWidth("card[99] VT x=9999 y=9999  raw●  scaled●") + pad * 2,
+            (#G.hand.cards + 1) * (lh + pad) + 8, 3, 3)
+
+        love.graphics.setColor(0.5, 1, 1, 1)
+        love.graphics.print(string.format("  G.TILESCALE=%.3f  G.TILESIZE=%.1f  scale=%.1f",
+            G.TILESCALE or 0, G.TILESIZE or 0, scale), pad, row_y)
+        row_y = row_y + lh + pad
+
+        for i, card in ipairs(G.hand.cards) do
+            local vt = card.VT or card.T
+            if vt and vt.x and vt.y then
+                local rx, ry = vt.x, vt.y            -- raw coordinates
+                local sx_s = rx * scale               -- scaled by TILESIZE*TILESCALE
+                local sy_s = ry * scale
+
+                -- Print the values
+                love.graphics.setColor(0.4, 1, 1, 1)
+                love.graphics.print(string.format("  card[%d] raw(%.0f,%.0f)  ×scale(%.0f,%.0f)",
+                    i, rx, ry, sx_s, sy_s), pad, row_y)
+                row_y = row_y + lh + pad
+
+                -- Cyan marker at raw position
+                love.graphics.setColor(0, 1, 1, 0.9)
+                love.graphics.circle("fill", rx, ry, 5)
+                love.graphics.setColor(0, 0, 0, 0.9)
+                love.graphics.print(tostring(i), rx + 6, ry - lh * 0.5)
+
+                -- Orange marker at scaled position (if different)
+                if math.abs(sx_s - rx) > 2 then
+                    love.graphics.setColor(1, 0.6, 0, 0.9)
+                    love.graphics.circle("fill", sx_s, sy_s, 5)
+                end
+            end
+        end
+    end
+
     love.graphics.pop()
 end
 

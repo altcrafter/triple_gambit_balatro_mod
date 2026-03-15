@@ -12,8 +12,8 @@
 
 local Dock = {}
 
-local SQUARE_SIZE = 36
-local SQUARE_GAP  = 16
+-- Scale factor: spec values designed for ~540px tall display (same as status_bar)
+local BASE_SH = 540
 
 local BOARD_UI_COLORS = {
     A = { 1.0,   0.176, 0.42  },
@@ -64,20 +64,25 @@ function Dock.draw()
     if not TG or not TG.initialized then return end
     if not TG.Phosphor then return end
 
-    local ids     = board_ids()
-    local sw, sh  = love.graphics.getDimensions()
+    local ids      = board_ids()
+    local sw, sh   = love.graphics.getDimensions()
+    local scale    = sh / BASE_SH
+    local sq_size  = math.floor(36 * scale)   -- ~59px at 889
+    local sq_gap   = math.floor(16 * scale)   -- ~26px
+    local font_sz  = math.floor(13 * scale)   -- ~21px
+    local margin   = math.floor(10 * scale)   -- ~16px bottom margin
+
     local n       = #ids
-    local total_w = n * SQUARE_SIZE + (n - 1) * SQUARE_GAP
+    local total_w = n * sq_size + (n - 1) * sq_gap
     local start_x = math.floor(sw / 2 - total_w / 2)
-    local sq_y    = sh - SQUARE_SIZE - 10
+    local sq_y    = sh - sq_size - margin
 
     for i, id in ipairs(ids) do
-        local sq_x   = start_x + (i - 1) * (SQUARE_SIZE + SQUARE_GAP)
+        local sq_x   = start_x + (i - 1) * (sq_size + sq_gap)
         local active  = (id == active_id())
         local cleared = is_cleared(id)
         local num_str = tostring(board_number(id))
 
-        -- Determine rendering state
         local color, glow, lean, alpha
         if active then
             color = BOARD_UI_COLORS[id] or { 1, 1, 1 }
@@ -96,13 +101,12 @@ function Dock.draw()
             alpha = 0.10
         end
 
-        -- Center the number within the hit square
-        local num_w = TG.Phosphor.width(num_str, "serif", 13)
-        local num_h = TG.Phosphor.height("serif", 13)
-        local num_x = sq_x + math.floor((SQUARE_SIZE - num_w) * 0.5)
-        local num_y = sq_y + math.floor((SQUARE_SIZE - num_h) * 0.5)
+        local num_w = TG.Phosphor.width(num_str, "serif", font_sz)
+        local num_h = TG.Phosphor.height("serif", font_sz)
+        local num_x = sq_x + math.floor((sq_size - num_w) * 0.5)
+        local num_y = sq_y + math.floor((sq_size - num_h) * 0.5)
 
-        TG.Phosphor.draw(num_str, num_x, num_y, color, glow, "serif", 13, alpha, lean)
+        TG.Phosphor.draw(num_str, num_x, num_y, color, glow, "serif", font_sz, alpha, lean)
     end
 
     love.graphics.setColor(1, 1, 1, 1)
@@ -113,18 +117,23 @@ end
 -- ============================================================
 
 function Dock.handle_click(mx, my)
-    local ids     = board_ids()
-    local sw, sh  = love.graphics.getDimensions()
-    local n       = #ids
-    local total_w = n * SQUARE_SIZE + (n - 1) * SQUARE_GAP
-    local start_x = math.floor(sw / 2 - total_w / 2)
-    local sq_y    = sh - SQUARE_SIZE - 10
+    local ids      = board_ids()
+    local sw, sh   = love.graphics.getDimensions()
+    local scale    = sh / BASE_SH
+    local sq_size  = math.floor(36 * scale)
+    local sq_gap   = math.floor(16 * scale)
+    local margin   = math.floor(10 * scale)
 
-    if my < sq_y or my > sq_y + SQUARE_SIZE then return nil end
+    local n       = #ids
+    local total_w = n * sq_size + (n - 1) * sq_gap
+    local start_x = math.floor(sw / 2 - total_w / 2)
+    local sq_y    = sh - sq_size - margin
+
+    if my < sq_y or my > sq_y + sq_size then return nil end
 
     for i, id in ipairs(ids) do
-        local sq_x = start_x + (i - 1) * (SQUARE_SIZE + SQUARE_GAP)
-        if mx >= sq_x and mx < sq_x + SQUARE_SIZE then
+        local sq_x = start_x + (i - 1) * (sq_size + sq_gap)
+        if mx >= sq_x and mx < sq_x + sq_size then
             if TG and TG.Switching then
                 TG.Switching.execute_switch(id)
             end

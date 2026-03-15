@@ -1,11 +1,21 @@
 --[[
     TRIPLE GAMBIT - ui/shop_ui.lua
-    Shop overlay: board tabs, per-board money display, gambit previews.
-    Shows which board will receive a purchase and its current money.
-    Broadcast palette. Phosphor text.
+    Shop board selector. Rendered only during G.STATES.SHOP.
+
+    Sits immediately below the status bar. Same visual language:
+      · Dark background, board-color left accent bar
+      · Large board letter, gold money readout
+      · Selected board: full board-color left bar + background tint + bright text
+      · Unselected: dim accent (25%), dim text
+      · Cleared boards: mint accent, "CLEARED" in place of money
+
+    A single "PURCHASING FOR  BOARD X" callout bar sits below the tabs,
+    using the selected board's color.
 ]]
 
 local ShopUI = {}
+
+local BASE_SH = 540   -- same scale baseline as status_bar
 
 local BOARD_UI_COLORS = {
     A = { 1.0,   0.176, 0.42  },
@@ -16,12 +26,8 @@ local BOARD_UI_COLORS = {
 
 local CLEARED_COLOR = { 0.412, 0.941, 0.682 }
 local GOLD_COLOR    = { 1.0, 0.835, 0.31 }
-local BG_COLOR      = { 0.020, 0.008, 0.055 }
+local BG_COLOR      = { 0.010, 0.003, 0.032 }
 
-local TAB_H   = 28
-local TAB_PAD = 6
-
--- Track which board tab is hovered/selected for purchase routing
 local _selected_board = nil
 
 -- ============================================================
@@ -48,6 +54,23 @@ local function selected_board()
     return _selected_board or active_id()
 end
 
+-- Derive sizes from sh (same formula as status_bar for visual consistency)
+local function sizes(sh)
+    local scale = sh / BASE_SH
+    return {
+        status_bh = math.floor(73 * scale),   -- must match status_bar's bh
+        tab_h     = math.floor(46 * scale),   -- ~76px — slightly shorter than status bar
+        accent    = math.floor(7  * scale),   -- ~12px accent bar
+        l_size    = math.floor(22 * scale),   -- ~36px letter
+        m_size    = math.floor(12 * scale),   -- ~20px money
+        c_size    = math.floor(10 * scale),   -- ~16px CLEARED
+        pad       = math.floor(6  * scale),   -- ~10px general padding
+        callout_h = math.floor(20 * scale),   -- ~33px callout strip below tabs
+        callout_sz= math.floor(11 * scale),   -- ~18px callout text
+        sep_w     = math.max(2, math.floor(2 * scale)),
+    }
+end
+
 -- ============================================================
 -- DRAW
 -- ============================================================
@@ -58,74 +81,109 @@ function ShopUI.draw()
     if not in_shop() then return end
 
     local sw, sh = love.graphics.getDimensions()
-    local ids     = board_ids()
-    local n       = #ids
-    local total_w = sw * 0.85
-    local tab_w   = math.floor((total_w - (n - 1) * TAB_PAD) / n)
-    local start_x = math.floor((sw - total_w) / 2)
-    local row_y   = 8  -- just below top edge (above status bar, or adjust)
+    local S      = sizes(sh)
 
-    local sel = selected_board()
+    local row_y  = S.status_bh   -- flush under the status bar
+    local ids    = board_ids()
+    local n      = #ids
+    local cell_w = math.floor(sw / n)
+    local sel    = selected_board()
+
+    -- ── Tab row background ──────────────────────────────────────
+    love.graphics.setColor(BG_COLOR[1], BG_COLOR[2], BG_COLOR[3], 0.88)
+    love.graphics.rectangle("fill", 0, row_y, sw, S.tab_h)
+
+    -- Bottom border of tab row
+    love.graphics.setColor(1, 1, 1, 0.06)
+    love.graphics.setLineWidth(1)
+    love.graphics.line(0, row_y + S.tab_h, sw, row_y + S.tab_h)
 
     for i, id in ipairs(ids) do
-        local tab_x  = start_x + (i - 1) * (tab_w + TAB_PAD)
+        local cx0    = (i - 1) * cell_w
         local board  = get_board(id)
-        local bc     = BOARD_UI_COLORS[id] or { 1, 1, 1 }
         local is_sel = (id == sel)
         local cleared = board and board.is_cleared or false
-        local money   = board and board.money or 0
+        local bc     = BOARD_UI_COLORS[id] or { 1, 1, 1 }
+        local ac     = cleared and CLEARED_COLOR or bc
 
-        -- Tab background
+        -- ── Selected background tint ────────────────────────────
         if is_sel then
-            love.graphics.setColor(bc[1], bc[2], bc[3], 0.12)
-        else
-            love.graphics.setColor(BG_COLOR[1], BG_COLOR[2], BG_COLOR[3], 0.75)
+            love.graphics.setColor(bc[1], bc[2], bc[3], 0.09)
+            love.graphics.rectangle("fill", cx0, row_y, cell_w, S.tab_h)
         end
-        love.graphics.rectangle("fill", tab_x, row_y, tab_w, TAB_H, 3, 3)
 
-        -- Border
-        local border_c = is_sel and bc or { 1, 1, 1 }
-        local border_a = is_sel and 0.5 or 0.06
-        love.graphics.setColor(border_c[1], border_c[2], border_c[3], border_a)
-        love.graphics.setLineWidth(1)
-        love.graphics.rectangle("line", tab_x + 0.5, row_y + 0.5, tab_w - 1, TAB_H - 1, 3, 3)
+        -- ── Left accent bar ─────────────────────────────────────
+        local acc_a = is_sel and 1.0 or (cleared and 0.75 or 0.22)
+        love.graphics.setColor(ac[1], ac[2], ac[3], acc_a)
+        love.graphics.rectangle("fill", cx0, row_y, S.accent, S.tab_h)
 
-        -- Bottom indicator bar for selected tab
         if is_sel then
             love.graphics.setBlendMode("add")
-            love.graphics.setColor(bc[1], bc[2], bc[3], 0.5)
-            love.graphics.rectangle("fill", tab_x + 3, row_y + TAB_H - 2, tab_w - 6, 2, 1, 1)
+            love.graphics.setColor(bc[1], bc[2], bc[3], 0.12)
+            love.graphics.rectangle("fill", cx0, row_y, S.accent * 6, S.tab_h)
             love.graphics.setBlendMode("alpha")
         end
 
-        -- Board letter
-        local glow = is_sel and 0.7 or 0.0
-        local alpha = is_sel and 1.0 or 0.35
-        TG.Phosphor.draw(id, tab_x + 8, row_y + 6, bc, glow, 11, alpha)
+        -- ── Cell separator ──────────────────────────────────────
+        if i < n then
+            love.graphics.setColor(1, 1, 1, 0.10)
+            love.graphics.setLineWidth(S.sep_w)
+            local sx = cx0 + cell_w - S.sep_w * 0.5
+            love.graphics.line(sx, row_y, sx, row_y + S.tab_h)
+            love.graphics.setLineWidth(1)
+        end
 
-        -- Money
-        local money_str = "$" .. tostring(money)
-        local mw = TG.Phosphor.width(money_str, 8)
-        TG.Phosphor.draw(money_str,
-            tab_x + tab_w - mw - 6, row_y + 9,
-            GOLD_COLOR, 0.2, 8, alpha)
+        -- ── Board letter ────────────────────────────────────────
+        local letter_x = cx0 + S.accent + S.pad * 2
+        local lh       = TG.Phosphor.height("serif", S.l_size)
+        local letter_y = row_y + math.floor((S.tab_h - lh) * 0.5)
 
-        -- Cleared indicator
-        if cleared then
-            local cc_x = tab_x + tab_w - 10
-            local cc_y = row_y + 6
-            love.graphics.setColor(CLEARED_COLOR[1], CLEARED_COLOR[2], CLEARED_COLOR[3], 0.9)
-            love.graphics.circle("fill", cc_x, cc_y + 4, 3)
+        local lc, lg, la
+        if is_sel then
+            lc, lg, la = bc, 0.55, 1.0
+        elseif cleared then
+            lc, lg, la = CLEARED_COLOR, 0.1, 0.80
+        else
+            lc, lg, la = { 1, 1, 1 }, 0.0, 0.22
+        end
+        TG.Phosphor.draw(id, letter_x, letter_y, lc, lg, "serif", S.l_size, la,
+                         is_sel and math.rad(2) or 0)
+
+        -- ── Money or CLEARED ────────────────────────────────────
+        if board then
+            local right_x = letter_x + TG.Phosphor.width(id, "serif", S.l_size) + S.pad * 2
+
+            if cleared then
+                local cy = row_y + math.floor((S.tab_h - TG.Phosphor.height("mono", S.c_size)) * 0.5)
+                TG.Phosphor.draw("CLEARED", right_x, cy, CLEARED_COLOR, 0.4, "mono", S.c_size, 0.9)
+            else
+                local money   = board.money or 0
+                local money_s = "$" .. tostring(money)
+                local my = row_y + math.floor((S.tab_h - TG.Phosphor.height("mono", S.m_size)) * 0.5)
+                TG.Phosphor.draw(money_s, right_x, my,
+                                 GOLD_COLOR, is_sel and 0.3 or 0.0, "mono", S.m_size,
+                                 is_sel and 1.0 or 0.38)
+            end
         end
     end
 
-    -- "BUYING FOR: BOARD X" label below the tabs
-    local sel_str = "BUYING FOR: BOARD " .. sel
-    local lw = TG.Phosphor.width(sel_str, 8)
-    local lx = math.floor(sw / 2 - lw / 2)
-    local ly = row_y + TAB_H + 4
-    local sel_bc = BOARD_UI_COLORS[sel] or { 1, 1, 1 }
-    TG.Phosphor.draw(sel_str, lx, ly, sel_bc, 0.3, 8, 0.75)
+    -- ── "PURCHASING FOR  BOARD X" callout ───────────────────────
+    local callout_y  = row_y + S.tab_h
+    local sel_bc     = BOARD_UI_COLORS[sel] or { 1, 1, 1 }
+    local callout_s  = "PURCHASING FOR  BOARD " .. sel
+
+    -- Callout background
+    love.graphics.setColor(sel_bc[1], sel_bc[2], sel_bc[3], 0.06)
+    love.graphics.rectangle("fill", 0, callout_y, sw, S.callout_h)
+    love.graphics.setColor(sel_bc[1], sel_bc[2], sel_bc[3], 0.18)
+    love.graphics.setLineWidth(1)
+    love.graphics.line(0, callout_y + S.callout_h, sw, callout_y + S.callout_h)
+
+    -- Callout text (centred)
+    local cw  = TG.Phosphor.width(callout_s, "mono", S.callout_sz)
+    local cx  = math.floor(sw / 2 - cw / 2)
+    local cy  = callout_y + math.floor((S.callout_h - TG.Phosphor.height("mono", S.callout_sz)) * 0.5)
+    TG.Phosphor.draw(callout_s, cx, cy, sel_bc, 0.35, "mono", S.callout_sz, 0.90)
 
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.setLineWidth(1)
@@ -139,18 +197,18 @@ function ShopUI.handle_click(mx, my)
     if not in_shop() then return false end
 
     local sw, sh = love.graphics.getDimensions()
-    local ids     = board_ids()
-    local n       = #ids
-    local total_w = sw * 0.85
-    local tab_w   = math.floor((total_w - (n - 1) * TAB_PAD) / n)
-    local start_x = math.floor((sw - total_w) / 2)
-    local row_y   = 8
+    local S      = sizes(sh)
+    local row_y  = S.status_bh
 
-    if my < row_y or my > row_y + TAB_H then return false end
+    if my < row_y or my > row_y + S.tab_h then return false end
+
+    local ids    = board_ids()
+    local n      = #ids
+    local cell_w = math.floor(sw / n)
 
     for i, id in ipairs(ids) do
-        local tab_x = start_x + (i - 1) * (tab_w + TAB_PAD)
-        if mx >= tab_x and mx < tab_x + tab_w then
+        local tab_x = (i - 1) * cell_w
+        if mx >= tab_x and mx < tab_x + cell_w then
             _selected_board = id
             return true
         end
@@ -162,7 +220,6 @@ end
 -- PUBLIC ACCESSORS
 -- ============================================================
 
--- Returns the board currently targeted for shop purchases
 function ShopUI.get_target_board()
     return selected_board()
 end
@@ -171,7 +228,6 @@ function ShopUI.set_target_board(id)
     _selected_board = id
 end
 
--- Reset on entering shop (default to active board)
 function ShopUI.on_shop_enter()
     _selected_board = active_id()
 end

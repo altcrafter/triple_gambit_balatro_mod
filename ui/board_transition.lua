@@ -145,38 +145,48 @@ local function draw_switch(tr)
     end
 
     if chyron_visible > 0.02 then
+        local scale  = h / 540   -- same baseline as all other UI files
+
+        local chyron_h = math.floor(73 * scale)   -- ~120px — matches status bar height
+        local font_sz  = math.floor(38 * scale)   -- ~63px — big readable label
+        local accent_w = math.floor(7  * scale)   -- ~12px
+        local pad      = math.floor(6  * scale)   -- ~10px
+
         -- Entrance: slide in from left
         local entrance_progress = math.min(1.0, chyron_visible * 1.5)
         local margin_frac       = (1 - entrance_progress) * -0.5
         local chyron_x          = math.floor(margin_frac * w)
         local chyron_y          = math.floor(h * 0.38)
         local chyron_w          = math.floor(w * 0.55)
-        local chyron_h          = 52
 
-        -- Background gradient
-        local steps = 10
+        -- Background gradient (solid left 60%, fades right)
+        local solid_w = math.floor(chyron_w * 0.60)
+        local fade_w  = chyron_w - solid_w
+        local steps   = 10
+        love.graphics.setColor(0.020, 0.008, 0.055, 0.92 * chyron_visible)
+        love.graphics.rectangle("fill", chyron_x, chyron_y, solid_w, chyron_h)
         for i = 1, steps do
             local frac = 1 - (i / steps)
             love.graphics.setColor(0.020, 0.008, 0.055, 0.92 * frac * chyron_visible)
             love.graphics.rectangle("fill",
-                chyron_x + (i - 1) * (chyron_w / steps), chyron_y,
-                chyron_w / steps + 1, chyron_h)
+                chyron_x + solid_w + (i - 1) * (fade_w / steps), chyron_y,
+                fade_w / steps + 1, chyron_h)
         end
 
         -- Left accent bar + bloom
         love.graphics.setBlendMode("add")
         love.graphics.setColor(bc[1], bc[2], bc[3], 0.5 * chyron_visible)
-        love.graphics.rectangle("fill", chyron_x, chyron_y, 8, chyron_h)
+        love.graphics.rectangle("fill", chyron_x, chyron_y, accent_w * 5, chyron_h)
         love.graphics.setBlendMode("alpha")
         love.graphics.setColor(bc[1], bc[2], bc[3], chyron_visible)
-        love.graphics.rectangle("fill", chyron_x, chyron_y, 4, chyron_h)
+        love.graphics.rectangle("fill", chyron_x, chyron_y, accent_w, chyron_h)
 
-        local text_x = chyron_x + 12
         local label  = "BOARD " .. (tr.to_id or "?")
+        local text_x = chyron_x + accent_w + pad * 2
+        local text_y = chyron_y + math.floor((chyron_h - TG.Phosphor.height("serif", font_sz)) * 0.5)
 
-        -- Main label: serif 26px, glow 2.4, 0° lean
         local label_glow = 2.4 * chyron_visible
-        TG.Phosphor.draw(label, text_x, chyron_y + 8, bc, label_glow, "serif", 26, chyron_visible)
+        TG.Phosphor.draw(label, text_x, text_y, bc, label_glow, "serif", font_sz, chyron_visible)
     end
 
     love.graphics.setColor(1, 1, 1, 1)
@@ -232,15 +242,17 @@ local function draw_clear(tr)
         end
 
         if stamp_i > 0.02 then
-            local label   = "BOARD " .. (tr.board_id or "?") .. " CLEARED"
+            local scale    = h / 540
+            local font_sz  = math.floor(34 * scale)   -- ~56px — legible stamp
+
+            local label   = "BOARD " .. (tr.board_id or "?") .. "  CLEARED"
             local stamp_y = math.floor(h * 0.46)
-            local lw      = TG.Phosphor.width(label, "serif", 20)
+            local lw      = TG.Phosphor.width(label, "serif", font_sz)
             local stamp_x = math.floor(w / 2 - lw / 2)
 
-            -- Text only: serif 20px, white, -1.5° lean, color bloom provides contrast
-            local stamp_glow = 1.8 * stamp_i
+            local stamp_glow = 2.0 * stamp_i
             TG.Phosphor.draw(label, stamp_x, stamp_y,
-                             { 1, 1, 1 }, stamp_glow, "serif", 20, stamp_i, math.rad(-1.5))
+                             { 1, 1, 1 }, stamp_glow, "serif", font_sz, stamp_i, math.rad(-1.5))
         end
     end
 
