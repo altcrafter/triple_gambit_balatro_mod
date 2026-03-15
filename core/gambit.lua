@@ -53,6 +53,7 @@ TG.Gambit.TEMPLATES = {
 }
 
 -- Active gambits for this run: list of { id, board, hand_type, level_boost, joker_ref }
+-- joker_ref is nil for board-intrinsic starting gambits.
 TG.Gambit.active = {}
 
 -- ============================================================
@@ -195,6 +196,56 @@ function TG.Gambit.assign_random(joker_card, board_id)
     joker_card.tg_gambit_id = t.id
     print(string.format("[TG] Shop joker tagged: %s (Board %s, %s +%d)",
         t.id, t.board, t.hand_type, t.level_boost))
+end
+
+-- ============================================================
+-- BOARD DEFAULTS
+-- Assigns one random gambit per board at run start (intrinsic lock,
+-- no joker required). Each board gets a distinct hand type where possible.
+-- ============================================================
+
+function TG.Gambit.assign_board_defaults()
+    -- Clear any stale intrinsic gambits (joker_ref == nil) from a previous run.
+    for i = #TG.Gambit.active, 1, -1 do
+        if not TG.Gambit.active[i].joker_ref then
+            table.remove(TG.Gambit.active, i)
+        end
+    end
+
+    -- Build a pool of all hand types and shuffle it so each board gets
+    -- a distinct one (8 hand types, 4 boards — plenty of room).
+    local hand_types = {
+        "Pair", "Two Pair", "Three of a Kind", "Straight",
+        "Flush", "Full House", "Four of a Kind", "High Card",
+    }
+    -- Fisher-Yates shuffle
+    for i = #hand_types, 2, -1 do
+        local j = math.random(i)
+        hand_types[i], hand_types[j] = hand_types[j], hand_types[i]
+    end
+
+    for idx, board_id in ipairs(TG.BOARD_IDS) do
+        local hand_type = hand_types[idx]
+        -- Find the matching template for this board + hand_type
+        local template
+        for _, t in ipairs(TG.Gambit.TEMPLATES) do
+            if t.board == board_id and t.hand_type == hand_type then
+                template = t
+                break
+            end
+        end
+        if template then
+            table.insert(TG.Gambit.active, {
+                id         = template.id,
+                board      = template.board,
+                hand_type  = template.hand_type,
+                level_boost= template.level_boost,
+                joker_ref  = nil,  -- intrinsic: not tied to any joker
+            })
+            print(string.format("[TG] Board %s starting gambit: %s (+%d)",
+                board_id, hand_type, template.level_boost))
+        end
+    end
 end
 
 -- ============================================================

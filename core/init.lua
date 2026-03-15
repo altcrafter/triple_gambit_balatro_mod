@@ -77,6 +77,10 @@ function TG:init()
     -- Point TG.active_gambits at the same table as TG.Gambit.active
     -- so UI files reading TG.active_gambits see live gambit state.
     self.active_gambits      = TG.Gambit.active
+
+    -- Assign a random starting hand-type lock to each board so gambit
+    -- pennants are visible from the very first blind.
+    TG.Gambit.assign_board_defaults()
     self.chip_stack          = TG.ChipStack and TG.ChipStack:new() or nil
     self.run_active          = true
     self.current_ante        = 1
