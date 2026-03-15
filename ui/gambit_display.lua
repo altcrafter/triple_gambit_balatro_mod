@@ -94,29 +94,52 @@ local function draw_badge(sx, sy, card_w, card_h, gambit)
     local id  = gambit.board
     local bc  = BOARD_UI_COLORS[id] or { 1, 1, 1 }
     local sc  = HAND_SHORTCODES[gambit.hand_type] or "??"
-    local lvl = "+" .. tostring(gambit.level_boost or 0)
-    local label = id .. " " .. sc .. lvl
+    local label = sc  -- mono 7px shortcode only on card badges
 
-    local badge_x = sx
     local badge_y = sy + (card_h or 80) - BADGE_H
-    local badge_w = (card_w or 60)
+    local badge_x = sx
 
-    -- Dark backing slab
-    love.graphics.setColor(0.012, 0.004, 0.039, 0.88)
-    love.graphics.rectangle("fill", badge_x, badge_y, badge_w, BADGE_H)
+    -- Pennant shape: rectangle with triangular point on right edge
+    -- Height 14px, point extends 6px beyond rect right, +3° CW rotation
+    local h     = 14
+    local point = 6
+    local pen_w = TG.Phosphor.width(label, "mono", BADGE_FONT_SZ) + 10
+    local mid_y = badge_y + h * 0.5
+    local x0    = badge_x
+    local x1    = badge_x + pen_w
+    local xp    = x1 + point
 
-    -- Left accent bar + bloom
-    love.graphics.setBlendMode("add")
-    love.graphics.setColor(bc[1], bc[2], bc[3], 0.5)
-    love.graphics.rectangle("fill", badge_x, badge_y, 6, BADGE_H)
-    love.graphics.setBlendMode("alpha")
-    love.graphics.setColor(bc[1], bc[2], bc[3], 1.0)
-    love.graphics.rectangle("fill", badge_x, badge_y, BADGE_ACCENT, BADGE_H)
+    local verts = {
+        x0, badge_y,
+        x1, badge_y,
+        xp, mid_y,
+        x1, badge_y + h,
+        x0, badge_y + h,
+    }
 
-    -- Text with phosphor glow
-    local text_x = badge_x + BADGE_ACCENT + 3
-    local text_y = badge_y + math.floor((BADGE_H - TG.Phosphor.height(BADGE_FONT_SZ)) / 2)
-    TG.Phosphor.draw(label, text_x, text_y, BADGE_CREAM, 0.3, BADGE_FONT_SZ, 0.85)
+    -- Pivot: center of bounding box, +3° CW
+    local pivot_x = badge_x + (pen_w + point) * 0.5
+    local pivot_y = mid_y
+
+    love.graphics.push()
+    love.graphics.translate(pivot_x, pivot_y)
+    love.graphics.rotate(math.rad(3))
+    love.graphics.translate(-pivot_x, -pivot_y)
+
+    -- Fill
+    love.graphics.setColor(bc[1], bc[2], bc[3], 0.10)
+    love.graphics.polygon("fill", verts)
+    -- Stroke
+    love.graphics.setColor(bc[1], bc[2], bc[3], 0.25)
+    love.graphics.setLineWidth(1)
+    love.graphics.polygon("line", verts)
+
+    -- Text: mono 7px, board color 80%, glow 0.2
+    local text_x = badge_x + 4
+    local text_y = badge_y + math.floor((h - TG.Phosphor.height("mono", BADGE_FONT_SZ)) * 0.5)
+    TG.Phosphor.draw(label, text_x, text_y, bc, 0.2, "mono", BADGE_FONT_SZ, 0.80)
+
+    love.graphics.pop()
 end
 
 -- ============================================================

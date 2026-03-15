@@ -1,14 +1,16 @@
 --[[
     TRIPLE GAMBIT - ui/status_bar.lua
     36px compact beacon strip across the top. All 4 boards in a row.
-    REWRITE (was 3-board; now 4-board, broadcast palette, phosphor text).
+    Revision: beacon rings, serif letters, pennant gambit badges, no progress bar.
+
+    Per cell (left-clustered, right is void):
+      [ring 8px from left] [board letter 4px gap] [money or pennant 4px gap]
 ]]
 
 local StatusBar = {}
 
 local BAR_HEIGHT = 36
 
--- Vivid broadcast UI colors
 local BOARD_UI_COLORS = {
     A = { 1.0,   0.176, 0.42  },
     B = { 0.0,   0.898, 1.0   },
@@ -16,22 +18,19 @@ local BOARD_UI_COLORS = {
     D = { 0.706, 0.302, 1.0   },
 }
 
-local CLEARED_COLOR  = { 0.412, 0.941, 0.682 }
-local DEAD_WHITE     = { 1, 1, 1 }
+local CLEARED_COLOR = { 0.412, 0.941, 0.682 }
 
--- Hand type shortcodes for gambit badges
 local HAND_SHORTCODES = {
-    ["Pair"]           = "PR",
-    ["Two Pair"]       = "2P",
-    ["Three of a Kind"]= "3K",
-    ["Straight"]       = "ST",
-    ["Flush"]          = "FL",
-    ["Full House"]     = "FH",
-    ["Four of a Kind"] = "4K",
-    ["High Card"]      = "HC",
+    ["Pair"]            = "PR",
+    ["Two Pair"]        = "2P",
+    ["Three of a Kind"] = "3K",
+    ["Straight"]        = "ST",
+    ["Flush"]           = "FL",
+    ["Full House"]      = "FH",
+    ["Four of a Kind"]  = "4K",
+    ["High Card"]       = "HC",
 }
 
--- Per-cell click regions (updated each draw)
 local _cell_rects = {}
 
 -- ============================================================
@@ -53,9 +52,7 @@ end
 local function get_gambit_lock(id)
     if not (TG and TG.active_gambits) then return nil end
     for _, g in ipairs(TG.active_gambits) do
-        if g.board == id then
-            return g
-        end
+        if g.board == id then return g end
     end
     return nil
 end
@@ -64,12 +61,93 @@ local function board_color(id)
     return BOARD_UI_COLORS[id] or { 1, 1, 1 }
 end
 
--- Draw a small additive bloom circle behind a main circle
-local function draw_bloom_circle(cx, cy, r, color, alpha)
-    love.graphics.setBlendMode("add")
-    love.graphics.setColor(color[1], color[2], color[3], alpha)
-    love.graphics.circle("fill", cx, cy, r * 2.2)
-    love.graphics.setBlendMode("alpha")
+-- ============================================================
+-- BEACON RING
+-- Three states via one shape:
+--   Active:   8px outer, 2px stroke, board color, phosphor bloom
+--   Cleared:  8px outer, filled #69f0ae
+--   Inactive: 8px outer, 1px stroke, board color 30% opacity
+-- ============================================================
+
+local function draw_beacon_ring(cx, cy, bc, is_active, is_cleared)
+    local r = 4  -- outer radius
+
+    if is_cleared then
+        -- Filled solid mint
+        love.graphics.setColor(CLEARED_COLOR[1], CLEARED_COLOR[2], CLEARED_COLOR[3], 1.0)
+        love.graphics.circle("fill", cx, cy, r)
+    elseif is_active then
+        -- Bloom (additive, bleeds inward and outward)
+        love.graphics.setBlendMode("add")
+        love.graphics.setColor(bc[1], bc[2], bc[3], 0.30)
+        love.graphics.circle("fill", cx, cy, r * 2.5)
+        love.graphics.setBlendMode("alpha")
+        -- Ring: 2px stroke, no fill
+        love.graphics.setColor(bc[1], bc[2], bc[3], 1.0)
+        love.graphics.setLineWidth(2)
+        love.graphics.circle("line", cx, cy, r - 1)
+        love.graphics.setLineWidth(1)
+    else
+        -- Dim ring: 1px stroke, board color 30%
+        love.graphics.setColor(bc[1], bc[2], bc[3], 0.30)
+        love.graphics.setLineWidth(1)
+        love.graphics.circle("line", cx, cy, r - 0.5)
+        love.graphics.setLineWidth(1)
+    end
+end
+
+-- ============================================================
+-- GAMBIT PENNANT
+-- Rectangle with triangular point on the right edge.
+-- Height: 14px.  Point extends 6px beyond right boundary.
+-- 3° clockwise rotation applied to whole shape.
+-- Fill: board color 10%.  Stroke: board color 25%, 1px.
+-- Text: mono 7px, board color 80%.
+-- ============================================================
+
+local function draw_gambit_pennant(left_x, top_y, rect_w, bc, shortcode)
+    local h     = 14
+    local point = 6        -- px beyond rect right boundary
+    local mid_y = top_y + h * 0.5
+
+    local x0 = left_x
+    local x1 = left_x + rect_w
+    local xp  = x1 + point  -- point tip
+
+    -- 5 vertices: top-left, top-right, point, bottom-right, bottom-left
+    local verts = {
+        x0, top_y,
+        x1, top_y,
+        xp, mid_y,
+        x1, top_y + h,
+        x0, top_y + h,
+    }
+
+    -- Pivot for 3° CW rotation: center of bounding box
+    local pivot_x = left_x + (rect_w + point) * 0.5
+    local pivot_y = mid_y
+
+    love.graphics.push()
+    love.graphics.translate(pivot_x, pivot_y)
+    love.graphics.rotate(math.rad(3))
+    love.graphics.translate(-pivot_x, -pivot_y)
+
+    -- Fill
+    love.graphics.setColor(bc[1], bc[2], bc[3], 0.10)
+    love.graphics.polygon("fill", verts)
+    -- Stroke
+    love.graphics.setColor(bc[1], bc[2], bc[3], 0.25)
+    love.graphics.setLineWidth(1)
+    love.graphics.polygon("line", verts)
+
+    -- Text (mono 7px, board color 80%)
+    if TG and TG.Phosphor and shortcode then
+        local text_x = left_x + 4
+        local text_y = top_y + math.floor((h - TG.Phosphor.height("mono", 7)) * 0.5)
+        TG.Phosphor.draw(shortcode, text_x, text_y, bc, 0.2, "mono", 7, 0.8)
+    end
+
+    love.graphics.pop()
 end
 
 -- ============================================================
@@ -80,9 +158,10 @@ function StatusBar.draw()
     if not TG or not TG.initialized then return end
     if not TG.Phosphor then return end
 
-    local w = love.graphics.getWidth()
-    local num_boards = #board_ids()
-    local cell_w = math.floor(w / num_boards)
+    local w       = love.graphics.getWidth()
+    local ids     = board_ids()
+    local n       = #ids
+    local cell_w  = math.floor(w / n)
 
     -- Background
     love.graphics.setColor(0.012, 0.004, 0.039, 0.85)
@@ -94,12 +173,12 @@ function StatusBar.draw()
 
     _cell_rects = {}
 
-    for i, id in ipairs(board_ids()) do
-        local cx0 = (i - 1) * cell_w
-        local board = get_board(id)
-        local is_active  = (id == active_id())
-        local is_cleared = board and board.is_cleared or false
-        local bc = board_color(id)
+    for i, id in ipairs(ids) do
+        local cx0     = (i - 1) * cell_w
+        local board   = get_board(id)
+        local active  = (id == active_id())
+        local cleared = board and board.is_cleared or false
+        local bc      = board_color(id)
 
         _cell_rects[i] = { x = cx0, y = 0, w = cell_w, h = BAR_HEIGHT, id = id }
 
@@ -109,93 +188,48 @@ function StatusBar.draw()
             love.graphics.line(cx0, 4, cx0, BAR_HEIGHT - 4)
         end
 
-        -- ── Beacon dot ──────────────────────────────────────────
-        local dot_x = cx0 + 10
-        local dot_y = BAR_HEIGHT / 2
-        local dot_r = 4
-
-        if is_active then
-            draw_bloom_circle(dot_x, dot_y, dot_r, bc, 0.25)
-            love.graphics.setColor(bc[1], bc[2], bc[3], 1.0)
-            love.graphics.circle("fill", dot_x, dot_y, dot_r)
-        elseif is_cleared then
-            love.graphics.setColor(CLEARED_COLOR[1], CLEARED_COLOR[2], CLEARED_COLOR[3], 0.9)
-            love.graphics.circle("fill", dot_x, dot_y, dot_r)
-        else
-            love.graphics.setColor(bc[1], bc[2], bc[3], 0.35)
-            love.graphics.circle("fill", dot_x, dot_y, dot_r)
-        end
+        -- ── Beacon ring ──────────────────────────────────────────
+        -- Beacon ring: 8px from cell left edge
+        -- Ring outer diameter = 8px → radius = 4, center at cx0 + 8 + 4 = cx0 + 12
+        local ring_cx = cx0 + 12
+        local ring_cy = BAR_HEIGHT * 0.5
+        draw_beacon_ring(ring_cx, ring_cy, bc, active, cleared)
 
         -- ── Board letter ─────────────────────────────────────────
+        -- 4px from ring's right edge (ring right = cx0 + 12 + 4 = cx0 + 16)
         local letter_x = cx0 + 20
-        local letter_y = 4
-        if is_active then
-            TG.Phosphor.draw(id, letter_x, letter_y, bc, 0.7, 16)
+        local letter_y = math.floor(BAR_HEIGHT * 0.5 - TG.Phosphor.height("serif", 13) * 0.5)
+
+        if active then
+            -- Serif, 13px, glow 0.5, +2° lean
+            TG.Phosphor.draw(id, letter_x, letter_y, bc, 0.5, "serif", 13, 1.0, math.rad(2))
         else
-            TG.Phosphor.draw(id, letter_x, letter_y, DEAD_WHITE, 0.0, 16, 0.20)
+            -- Serif, 13px, glow 0.0, flat
+            TG.Phosphor.draw(id, letter_x, letter_y, { 1, 1, 1 }, 0.0, "serif", 13, 0.20, 0)
         end
 
-        -- ── Data stack ───────────────────────────────────────────
+        -- ── Money or gambit pennant ───────────────────────────────
         if board then
-            local score   = board.current_score or 0
-            local target  = board.target or 1
-            local money   = board.money or 0
-            local pct     = math.min(1.0, score / target)
+            local letter_right = letter_x + TG.Phosphor.width(id, "serif", 13) + 4
 
-            -- Top line: money + progress %
-            local money_str = "$" .. tostring(money)
-            local pct_str   = is_cleared and "CLR" or (math.floor(pct * 100) .. "%")
-            local money_x   = cx0 + 38
-            local top_y     = 4
-
-            TG.Phosphor.draw(money_str, money_x, top_y, { 1.0, 0.835, 0.31 }, 0.2, 8)
-            local pct_x = money_x + TG.Phosphor.width(money_str, 8) + 4
-            TG.Phosphor.draw(pct_str, pct_x, top_y, DEAD_WHITE, 0.0, 8, 0.35)
-
-            -- Bottom line: progress bar
-            local bar_y    = BAR_HEIGHT - 8
-            local bar_x    = cx0 + 38
-            local bar_w    = cell_w - 42
-            local bar_h    = 3
-
-            -- Background track
-            love.graphics.setColor(1, 1, 1, 0.06)
-            love.graphics.rectangle("fill", bar_x, bar_y, bar_w, bar_h, 1, 1)
-
-            -- Fill
-            local fill_w = math.max(0, bar_w * pct)
-            local fill_c = is_cleared and CLEARED_COLOR or bc
-            love.graphics.setColor(fill_c[1], fill_c[2], fill_c[3], 0.8)
-            love.graphics.rectangle("fill", bar_x, bar_y, fill_w, bar_h, 1, 1)
-
-            -- Bloom on bar
-            if is_active then
-                love.graphics.setBlendMode("add")
-                love.graphics.setColor(fill_c[1], fill_c[2], fill_c[3], 0.3)
-                love.graphics.rectangle("fill", bar_x, bar_y - 1, fill_w, bar_h + 2, 1, 1)
-                love.graphics.setBlendMode("alpha")
-            end
-
-            -- ── Gambit badge ──────────────────────────────────────
+            -- Check for gambit lock
             local G_STATE = (G and G.STATE and G.STATES) and G.STATE
             local in_shop = G_STATE and G.STATES.SHOP and (G_STATE == G.STATES.SHOP)
-            if not in_shop then
-                local glock = get_gambit_lock(id)
-                if glock then
-                    local sc = HAND_SHORTCODES[glock.hand_type] or "??"
-                    local badge_x = cx0 + cell_w - 22
-                    local badge_y = 6
-                    local badge_w = 18
-                    local badge_h = 12
-                    -- Pill background
-                    love.graphics.setColor(bc[1], bc[2], bc[3], 0.13)
-                    love.graphics.rectangle("fill", badge_x, badge_y, badge_w, badge_h, 3, 3)
-                    love.graphics.setColor(bc[1], bc[2], bc[3], 0.20)
-                    love.graphics.setLineWidth(1)
-                    love.graphics.rectangle("line", badge_x + 0.5, badge_y + 0.5, badge_w - 1, badge_h - 1, 3, 3)
-                    -- Text
-                    TG.Phosphor.draw(sc, badge_x + 2, badge_y + 2, bc, 0.3, 7)
-                end
+            local glock   = (not in_shop) and get_gambit_lock(id) or nil
+
+            if glock then
+                -- Pennant replaces money
+                local sc      = HAND_SHORTCODES[glock.hand_type] or "??"
+                local pen_y   = math.floor(BAR_HEIGHT * 0.5 - 7)  -- center 14px pennant
+                local pen_w   = TG.Phosphor.width(sc, "mono", 7) + 10
+                draw_gambit_pennant(letter_right, pen_y, pen_w, bc, sc)
+            else
+                -- Money: mono 7px, warm gold, glow 0.15
+                local money   = board.money or 0
+                local money_s = "$" .. tostring(money)
+                local money_y = math.floor(BAR_HEIGHT * 0.5 - TG.Phosphor.height("mono", 7) * 0.5)
+                TG.Phosphor.draw(money_s, letter_right, money_y,
+                                 { 1.0, 0.835, 0.31 }, 0.15, "mono", 7)
             end
         end
     end
@@ -206,8 +240,6 @@ end
 
 -- ============================================================
 -- CLICK HANDLING
--- Called from love.mousepressed hook in main.lua
--- Returns board_id if a cell was clicked, nil otherwise
 -- ============================================================
 
 function StatusBar.handle_click(mx, my)

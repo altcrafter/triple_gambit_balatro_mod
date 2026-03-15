@@ -1,21 +1,23 @@
 --[[
     TRIPLE GAMBIT - ui/resource_display.lua
     Icon pips: hands + discards + cleared boards.
-    REWRITE: was gauge bars, now dots/squares with spend animation.
-    Layout: [●][■][■][■][■] · [●][■][■][■] · [○][○][○]
+    Revision: all circles 5px diameter, fill-drain spend animation, 8px group gaps.
+
+    Filled circle = available.  Hollow 1px stroke = spent/used.
+    Spend animation: fill opacity 1→0, stroke opacity 0→0.08, over 120ms.
+    (No shrinking — the glass empties, it doesn't shrink.)
 ]]
 
 local RD = {}
 
-local HANDS_COLOR   = { 1.0, 0.569, 0.0   }  -- #ff9100 orange
-local DISC_COLOR    = { 0.251, 0.769, 1.0  }  -- #40c4ff blue
-local CLEARED_COLOR = { 0.412, 0.941, 0.682 } -- #69f0ae mint
-local DEAD_ALPHA    = 0.15
-local PIP_SIZE      = 6   -- px, square pips
-local DOT_R         = 2.5 -- beacon dot radius
-local SEP_R         = 1   -- separator dot radius
-local SPACING       = 9   -- px between pips
-local SECTION_GAP   = 14  -- px between sections
+local HANDS_COLOR   = { 1.0, 0.569, 0.0   }   -- #ff9100 orange
+local DISC_COLOR    = { 0.251, 0.769, 1.0  }   -- #40c4ff blue
+local CLEARED_COLOR = { 0.412, 0.941, 0.682 }  -- #69f0ae mint
+
+local PIP_R      = 2.5   -- pip circle radius (5px diameter)
+local PIP_STRIDE = 9     -- center-to-center spacing within a group
+local GROUP_GAP  = 8     -- px gap between groups (no separator dots)
+local ANIM_DUR   = 0.12  -- 120ms fill-drain animation
 
 -- Per-pip spend animations
 local _pip_state = {
@@ -48,108 +50,99 @@ local function total_boards()
     return (TG and TG.BOARD_IDS) and #TG.BOARD_IDS or 4
 end
 
--- Initialize pip state tables for max capacity
 local function ensure_pip_state()
     local max_h = (TG and TG.CONFIG and TG.CONFIG.HANDS_PER_BLIND) or 4
     local max_d = (TG and TG.CONFIG and TG.CONFIG.DISCARDS_PER_BLIND) or 3
     for i = 1, max_h do
         if not _pip_state.hands[i] then
-            _pip_state.hands[i] = { timer = nil, was_lit = true }
+            _pip_state.hands[i] = { timer = nil }
         end
     end
     for i = 1, max_d do
         if not _pip_state.discards[i] then
-            _pip_state.discards[i] = { timer = nil, was_lit = true }
+            _pip_state.discards[i] = { timer = nil }
         end
     end
 end
 
 -- ============================================================
--- DRAW PIP (square)
+-- DRAW PIP (circle, fill-drain style)
 -- ============================================================
 
-local function draw_pip_sq(x, y, color, lit, pip_s)
-    local sz    = pip_s or PIP_SIZE
+local function draw_pip_circle(cx, cy, color, lit, timer)
     local r, g, b = color[1], color[2], color[3]
 
-    if lit then
-        -- Box shadow / glow
+    if timer then
+        -- Animating: fill fading out, stroke fading in simultaneously
+        local t        = math.min(1.0, timer / ANIM_DUR)
+        local fill_a   = (1 - t) * 0.9
+        local stroke_a = t * 0.08
+
+        -- Fill (draining)
+        if fill_a > 0.005 then
+            love.graphics.setColor(r, g, b, fill_a)
+            love.graphics.circle("fill", cx, cy, PIP_R)
+        end
+        -- Stroke (fading in)
+        love.graphics.setColor(1, 1, 1, stroke_a)
+        love.graphics.setLineWidth(1)
+        love.graphics.circle("line", cx, cy, PIP_R)
+
+    elseif lit then
+        -- Available: filled + glow
         love.graphics.setBlendMode("add")
-        love.graphics.setColor(r, g, b, 0.3)
-        love.graphics.rectangle("fill", x - 2, y - 2, sz + 4, sz + 4, 2, 2)
+        love.graphics.setColor(r, g, b, 0.25)
+        love.graphics.circle("fill", cx, cy, PIP_R * 2.0)
         love.graphics.setBlendMode("alpha")
-        -- Main pip
         love.graphics.setColor(r, g, b, 0.9)
-        love.graphics.rectangle("fill", x, y, sz, sz, 1, 1)
+        love.graphics.circle("fill", cx, cy, PIP_R)
+
     else
-        love.graphics.setColor(1, 1, 1, DEAD_ALPHA)
-        love.graphics.rectangle("fill", x, y, sz * 0.6, sz * 0.6, 1, 1)
+        -- Spent: hollow, very dim stroke
+        love.graphics.setColor(1, 1, 1, 0.08)
+        love.graphics.setLineWidth(1)
+        love.graphics.circle("line", cx, cy, PIP_R)
     end
 end
 
 -- ============================================================
--- DRAW DOT (beacon)
+-- PUBLIC: SPEND EVENTS
 -- ============================================================
 
-local function draw_dot(cx, cy, color, radius)
-    local r, g, b = color[1], color[2], color[3]
-    -- Glow
-    love.graphics.setBlendMode("add")
-    love.graphics.setColor(r, g, b, 0.3)
-    love.graphics.circle("fill", cx, cy, radius * 2)
-    love.graphics.setBlendMode("alpha")
-    -- Main
-    love.graphics.setColor(r, g, b, 1.0)
-    love.graphics.circle("fill", cx, cy, radius)
-end
-
--- ============================================================
--- DRAW SEPARATOR
--- ============================================================
-
-local function draw_separator(cx, cy)
-    love.graphics.setColor(1, 1, 1, 0.10)
-    love.graphics.circle("fill", cx, cy, SEP_R)
-end
-
--- ============================================================
--- UPDATE
--- ============================================================
-
--- Called by main.lua when a hand is spent (pip_index = 1-based)
 function RD.on_hand_spent(idx)
     ensure_pip_state()
     if _pip_state.hands[idx] then
-        _pip_state.hands[idx].timer    = 0
-        _pip_state.hands[idx].was_lit  = true
+        _pip_state.hands[idx].timer = 0
     end
 end
 
 function RD.on_discard_spent(idx)
     ensure_pip_state()
     if _pip_state.discards[idx] then
-        _pip_state.discards[idx].timer   = 0
-        _pip_state.discards[idx].was_lit = true
+        _pip_state.discards[idx].timer = 0
     end
 end
 
+-- ============================================================
+-- UPDATE
+-- ============================================================
+
 function RD.update(dt)
-    local anim_dur = 0.15
     for _, state in ipairs(_pip_state.hands) do
         if state.timer then
             state.timer = state.timer + dt
-            if state.timer >= anim_dur then state.timer = nil end
+            if state.timer >= ANIM_DUR then state.timer = nil end
         end
     end
     for _, state in ipairs(_pip_state.discards) do
         if state.timer then
             state.timer = state.timer + dt
-            if state.timer >= anim_dur then state.timer = nil end
+            if state.timer >= ANIM_DUR then state.timer = nil end
         end
     end
 end
 
--- Alias called by the existing main_phase0c.lua update hook
+-- Alias called by main.lua update hook
 RD.update_shake = RD.update
 
 -- ============================================================
@@ -162,116 +155,75 @@ function RD.draw()
     local board = active_board()
     if not board then return end
 
-    local max_h = (TG.CONFIG and TG.CONFIG.HANDS_PER_BLIND) or 4
-    local max_d = (TG.CONFIG and TG.CONFIG.DISCARDS_PER_BLIND) or 3
-    local rem_h = board.hands_remaining or max_h
-    local rem_d = board.discards_remaining or max_d
+    local max_h   = (TG.CONFIG and TG.CONFIG.HANDS_PER_BLIND) or 4
+    local max_d   = (TG.CONFIG and TG.CONFIG.DISCARDS_PER_BLIND) or 3
+    local rem_h   = board.hands_remaining or max_h
+    local rem_d   = board.discards_remaining or max_d
+    local nb      = total_boards()
 
     ensure_pip_state()
 
     local sw, sh = love.graphics.getDimensions()
 
-    -- Total row width calculation
-    -- hands section: DOT + max_h PIPS
-    -- discards section: DOT + max_d PIPS
-    -- cleared section: total_boards CIRCLES
-    local nb = total_boards()
-    local total_w = (DOT_R * 2 + 2)
-                  + (max_h * SPACING)
-                  + SECTION_GAP
-                  + (DOT_R * 2 + 2)
-                  + (max_d * SPACING)
-                  + SECTION_GAP
-                  + (nb * SPACING)
+    -- Total row width:
+    --   hands group:    max_h pips (center-to-center * (max_h-1) + 2*PIP_R)
+    --   GROUP_GAP
+    --   discards group: max_d pips
+    --   GROUP_GAP
+    --   cleared group:  nb pips
+    local group_w = function(n) return (n - 1) * PIP_STRIDE + PIP_R * 2 end
+    local total_w = group_w(max_h) + GROUP_GAP + group_w(max_d) + GROUP_GAP + group_w(nb)
 
-    local row_x = math.floor(sw / 2 - total_w / 2)
-    local row_y = sh - 72  -- above card hand area
-    local mid_y = row_y + PIP_SIZE / 2
+    local row_x  = math.floor(sw / 2 - total_w / 2)
+    local row_y  = sh - 72
+    local mid_y  = row_y + PIP_R
 
-    local cx = row_x
+    local cx = row_x + PIP_R  -- start at center of first pip
 
-    -- ── HANDS SECTION ──────────────────────────────────────────
-    draw_dot(cx + DOT_R, mid_y, HANDS_COLOR, DOT_R)
-    cx = cx + DOT_R * 2 + 4
-
+    -- ── HANDS GROUP ─────────────────────────────────────────────
     for i = 1, max_h do
         local lit   = (i <= rem_h)
         local state = _pip_state.hands[i]
-        local scale = 1.0
-        if state and state.timer then
-            -- Quadratic ease-out with slight overshoot feel
-            local t = state.timer / 0.15
-            scale = 0.6 + 0.4 * math.max(0, 1 - t * (2 - t))
-        elseif not lit then
-            scale = 0.6
-        end
-        local sz = math.floor(PIP_SIZE * scale)
-        local ox = math.floor((PIP_SIZE - sz) / 2)
-        -- White flash on first frame of spend
-        local flash = state and state.timer and state.timer < 0.033
-        if flash then
-            draw_pip_sq(cx + ox, row_y + ox, { 1, 1, 1 }, true, sz)
-        else
-            draw_pip_sq(cx + ox, row_y + ox, HANDS_COLOR, lit, sz)
-        end
-        cx = cx + SPACING
+        draw_pip_circle(cx, mid_y, HANDS_COLOR, lit, state and state.timer)
+        cx = cx + PIP_STRIDE
     end
 
-    -- Separator
-    draw_separator(cx + SEP_R, mid_y)
-    cx = cx + SECTION_GAP
+    -- Group gap (no separator dot)
+    cx = cx - PIP_STRIDE + PIP_R * 2 + GROUP_GAP + PIP_R
 
-    -- ── DISCARDS SECTION ───────────────────────────────────────
-    draw_dot(cx + DOT_R, mid_y, DISC_COLOR, DOT_R)
-    cx = cx + DOT_R * 2 + 4
-
+    -- ── DISCARDS GROUP ──────────────────────────────────────────
     for i = 1, max_d do
         local lit   = (i <= rem_d)
         local state = _pip_state.discards[i]
-        local scale = 1.0
-        if state and state.timer then
-            local t = state.timer / 0.15
-            scale = 0.6 + 0.4 * math.max(0, 1 - t * (2 - t))
-        elseif not lit then
-            scale = 0.6
-        end
-        local sz = math.floor(PIP_SIZE * scale)
-        local ox = math.floor((PIP_SIZE - sz) / 2)
-        local flash = state and state.timer and state.timer < 0.033
-        if flash then
-            draw_pip_sq(cx + ox, row_y + ox, { 1, 1, 1 }, true, sz)
-        else
-            draw_pip_sq(cx + ox, row_y + ox, DISC_COLOR, lit, sz)
-        end
-        cx = cx + SPACING
+        draw_pip_circle(cx, mid_y, DISC_COLOR, lit, state and state.timer)
+        cx = cx + PIP_STRIDE
     end
 
-    -- Separator
-    draw_separator(cx + SEP_R, mid_y)
-    cx = cx + SECTION_GAP
+    -- Group gap
+    cx = cx - PIP_STRIDE + PIP_R * 2 + GROUP_GAP + PIP_R
 
-    -- ── CLEARED SECTION ────────────────────────────────────────
+    -- ── CLEARED GROUP ────────────────────────────────────────────
     local n_cleared = cleared_count()
     for i = 1, nb do
         local is_cleared = (i <= n_cleared)
-        local ccx = cx + (PIP_SIZE / 2)
-        local ccy = mid_y
         if is_cleared then
             love.graphics.setBlendMode("add")
-            love.graphics.setColor(CLEARED_COLOR[1], CLEARED_COLOR[2], CLEARED_COLOR[3], 0.25)
-            love.graphics.circle("fill", ccx, ccy, PIP_SIZE)
+            love.graphics.setColor(CLEARED_COLOR[1], CLEARED_COLOR[2], CLEARED_COLOR[3], 0.20)
+            love.graphics.circle("fill", cx, mid_y, PIP_R * 2)
             love.graphics.setBlendMode("alpha")
             love.graphics.setColor(CLEARED_COLOR[1], CLEARED_COLOR[2], CLEARED_COLOR[3], 1.0)
-            love.graphics.circle("fill", ccx, ccy, PIP_SIZE / 2)
+            love.graphics.circle("fill", cx, mid_y, PIP_R)
         else
             love.graphics.setColor(1, 1, 1, 0.10)
-            love.graphics.circle("fill", ccx, ccy, PIP_SIZE / 2)
+            love.graphics.setLineWidth(1)
+            love.graphics.circle("line", cx, mid_y, PIP_R)
         end
-        cx = cx + SPACING
+        cx = cx + PIP_STRIDE
     end
 
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.setBlendMode("alpha")
+    love.graphics.setLineWidth(1)
 end
 
 return RD

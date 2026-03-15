@@ -174,36 +174,9 @@ local function draw_switch(tr)
         local text_x = chyron_x + 12
         local label  = "BOARD " .. (tr.to_id or "?")
 
-        -- Three echo ghosts (staggered)
-        local ghost_delays = { 0.5, 0.3, 0.15 }
-        local ghost_offsets = { -8, -4, -1 }
-        local ghost_colors = {
-            { 0.235, 0.627, 1.0 },
-            { 1.0,   0.392, 0.588 },
-            bc,
-        }
-        local ghost_alphas = { 0.07, 0.11, 0.14 }
-
-        for i = 1, 3 do
-            local g_vis = math.max(0, chyron_visible - ghost_delays[i]) / (1 - ghost_delays[i])
-            if g_vis > 0 then
-                local gc = ghost_colors[i]
-                love.graphics.setColor(gc[1], gc[2], gc[3], ghost_alphas[i] * g_vis)
-                local font = TG.Phosphor.get_font(26)
-                if font then
-                    love.graphics.setFont(font)
-                    love.graphics.print(label, text_x + ghost_offsets[i], chyron_y + 8)
-                end
-            end
-        end
-
-        -- Main label
-        local label_glow = 2.8 * chyron_visible
-        TG.Phosphor.draw(label, text_x, chyron_y + 8, bc, label_glow, 26, chyron_visible)
-
-        -- Subtitle
-        local sub = "SWITCHING TO CH " .. (tr.to_id or "?")
-        TG.Phosphor.draw(sub, text_x, chyron_y + 36, { 1, 1, 1 }, 0.0, 8, 0.3 * chyron_visible)
+        -- Main label: serif 26px, glow 2.4, 0° lean
+        local label_glow = 2.4 * chyron_visible
+        TG.Phosphor.draw(label, text_x, chyron_y + 8, bc, label_glow, "serif", 26, chyron_visible)
     end
 
     love.graphics.setColor(1, 1, 1, 1)
@@ -261,25 +234,13 @@ local function draw_clear(tr)
         if stamp_i > 0.02 then
             local label   = "BOARD " .. (tr.board_id or "?") .. " CLEARED"
             local stamp_y = math.floor(h * 0.46)
-            local bar_h   = 36
-            local bar_y   = stamp_y - 8
-            local lw      = TG.Phosphor.width(label, 20)
+            local lw      = TG.Phosphor.width(label, "serif", 20)
             local stamp_x = math.floor(w / 2 - lw / 2)
 
-            -- Backing bar
-            love.graphics.setColor(0.012, 0.004, 0.039, 0.88 * stamp_i)
-            love.graphics.rectangle("fill", 0, bar_y, w, bar_h)
-            -- Colored borders
-            local border_c = { 0.412, 0.941, 0.682 }
-            love.graphics.setBlendMode("add")
-            love.graphics.setColor(border_c[1], border_c[2], border_c[3], 0.6 * stamp_i)
-            love.graphics.rectangle("fill", 0, bar_y, w, 2)
-            love.graphics.rectangle("fill", 0, bar_y + bar_h - 2, w, 2)
-            love.graphics.setBlendMode("alpha")
-
-            -- Text
-            local stamp_glow = 2.0 * stamp_i
-            TG.Phosphor.draw(label, stamp_x, stamp_y, { 1, 1, 1 }, stamp_glow, 20, stamp_i)
+            -- Text only: serif 20px, white, -1.5° lean, color bloom provides contrast
+            local stamp_glow = 1.8 * stamp_i
+            TG.Phosphor.draw(label, stamp_x, stamp_y,
+                             { 1, 1, 1 }, stamp_glow, "serif", 20, stamp_i, math.rad(-1.5))
         end
     end
 

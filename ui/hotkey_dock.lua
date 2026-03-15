@@ -1,14 +1,19 @@
 --[[
     TRIPLE GAMBIT - ui/hotkey_dock.lua
-    NEW. Four 36x36 board-switch squares at the bottom.
-    Shows board number, active state, cleared state, hot-line indicator.
+    Four board-switch squares. One element per square: the board number.
+    No background, no border, no hot-line, no status dot.
+    Phosphor bloom IS the background.
+
+    Active:   serif 13px, board color, glow 0.6, +2° lean.
+    Inactive: rgba(255,255,255,0.10), glow 0.0.
+    Cleared:  #69f0ae, glow 0.2.
+    16px gaps between squares.
 ]]
 
 local Dock = {}
 
 local SQUARE_SIZE = 36
-local SQUARE_GAP  = 6
-local ANIM_SPEED  = 1 / 0.15  -- 150ms transition
+local SQUARE_GAP  = 16
 
 local BOARD_UI_COLORS = {
     A = { 1.0,   0.176, 0.42  },
@@ -18,9 +23,6 @@ local BOARD_UI_COLORS = {
 }
 
 local CLEARED_COLOR = { 0.412, 0.941, 0.682 }
-
--- Per-square animation timers (0=inactive, 1=active)
-local _anim = { A = 0, B = 0, C = 0, D = 0 }
 
 -- ============================================================
 -- HELPERS
@@ -48,21 +50,10 @@ local function is_cleared(id)
 end
 
 -- ============================================================
--- UPDATE
+-- UPDATE (state read directly from TG each frame)
 -- ============================================================
 
 function Dock.update(dt)
-    local aid = active_id()
-    for _, id in ipairs(board_ids()) do
-        local target = (id == aid) and 1.0 or 0.0
-        if _anim[id] == nil then _anim[id] = 0 end
-        local delta = target - _anim[id]
-        if delta > 0 then
-            _anim[id] = math.min(1.0, _anim[id] + dt * ANIM_SPEED)
-        elseif delta < 0 then
-            _anim[id] = math.max(0.0, _anim[id] - dt * ANIM_SPEED)
-        end
-    end
 end
 
 -- ============================================================
@@ -73,78 +64,48 @@ function Dock.draw()
     if not TG or not TG.initialized then return end
     if not TG.Phosphor then return end
 
-    local ids  = board_ids()
-    local sw, sh = love.graphics.getDimensions()
-    local n    = #ids
+    local ids     = board_ids()
+    local sw, sh  = love.graphics.getDimensions()
+    local n       = #ids
     local total_w = n * SQUARE_SIZE + (n - 1) * SQUARE_GAP
     local start_x = math.floor(sw / 2 - total_w / 2)
     local sq_y    = sh - SQUARE_SIZE - 10
 
     for i, id in ipairs(ids) do
         local sq_x   = start_x + (i - 1) * (SQUARE_SIZE + SQUARE_GAP)
-        local anim_t = _anim[id] or 0
-        local bc     = BOARD_UI_COLORS[id] or { 1, 1, 1 }
+        local active  = (id == active_id())
         local cleared = is_cleared(id)
         local num_str = tostring(board_number(id))
 
-        -- Background
-        if anim_t > 0.01 then
-            love.graphics.setColor(bc[1], bc[2], bc[3], 0.06 * anim_t)
-            love.graphics.rectangle("fill", sq_x, sq_y, SQUARE_SIZE, SQUARE_SIZE, 3, 3)
+        -- Determine rendering state
+        local color, glow, lean, alpha
+        if active then
+            color = BOARD_UI_COLORS[id] or { 1, 1, 1 }
+            glow  = 0.6
+            lean  = math.rad(2)
+            alpha = 1.0
+        elseif cleared then
+            color = CLEARED_COLOR
+            glow  = 0.2
+            lean  = 0
+            alpha = 0.85
         else
-            love.graphics.setColor(0.039, 0.020, 0.078, 0.40)
-            love.graphics.rectangle("fill", sq_x, sq_y, SQUARE_SIZE, SQUARE_SIZE, 3, 3)
+            color = { 1, 1, 1 }
+            glow  = 0.0
+            lean  = 0
+            alpha = 0.10
         end
 
-        -- Border
-        if anim_t > 0.01 then
-            love.graphics.setColor(bc[1], bc[2], bc[3], 0.15 * anim_t)
-        else
-            love.graphics.setColor(1, 1, 1, 0.03)
-        end
-        love.graphics.setLineWidth(1)
-        love.graphics.rectangle("line", sq_x + 0.5, sq_y + 0.5, SQUARE_SIZE - 1, SQUARE_SIZE - 1, 3, 3)
+        -- Center the number within the hit square
+        local num_w = TG.Phosphor.width(num_str, "serif", 13)
+        local num_h = TG.Phosphor.height("serif", 13)
+        local num_x = sq_x + math.floor((SQUARE_SIZE - num_w) * 0.5)
+        local num_y = sq_y + math.floor((SQUARE_SIZE - num_h) * 0.5)
 
-        -- Hot-line (top 2px bar, active board only)
-        if anim_t > 0.01 then
-            love.graphics.setBlendMode("add")
-            love.graphics.setColor(bc[1], bc[2], bc[3], 0.6 * anim_t)
-            love.graphics.rectangle("fill", sq_x + 3, sq_y, SQUARE_SIZE - 6, 2, 1, 1)
-            love.graphics.setBlendMode("alpha")
-        end
-
-        -- Number label
-        local num_x = sq_x + math.floor(SQUARE_SIZE / 2 - TG.Phosphor.width(num_str, 16) / 2)
-        local num_y = sq_y + 6
-        if anim_t > 0.5 then
-            TG.Phosphor.draw(num_str, num_x, num_y, bc, 0.8 * anim_t, 16)
-        else
-            TG.Phosphor.draw(num_str, num_x, num_y, { 1, 1, 1 }, 0.0, 16, 0.12)
-        end
-
-        -- Status dot (bottom center)
-        local dot_x = sq_x + math.floor(SQUARE_SIZE / 2)
-        local dot_y = sq_y + SQUARE_SIZE - 5
-        local dot_c
-        if cleared then
-            dot_c = CLEARED_COLOR
-        elseif anim_t > 0.5 then
-            dot_c = bc
-        else
-            dot_c = nil
-        end
-
-        if dot_c then
-            love.graphics.setColor(dot_c[1], dot_c[2], dot_c[3], anim_t > 0.5 and 1.0 or 0.7)
-            love.graphics.circle("fill", dot_x, dot_y, 2)
-        else
-            love.graphics.setColor(1, 1, 1, 0.08)
-            love.graphics.circle("fill", dot_x, dot_y, 2)
-        end
+        TG.Phosphor.draw(num_str, num_x, num_y, color, glow, "serif", 13, alpha, lean)
     end
 
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setLineWidth(1)
 end
 
 -- ============================================================
@@ -152,9 +113,9 @@ end
 -- ============================================================
 
 function Dock.handle_click(mx, my)
-    local ids  = board_ids()
-    local sw, sh = love.graphics.getDimensions()
-    local n    = #ids
+    local ids     = board_ids()
+    local sw, sh  = love.graphics.getDimensions()
+    local n       = #ids
     local total_w = n * SQUARE_SIZE + (n - 1) * SQUARE_GAP
     local start_x = math.floor(sw / 2 - total_w / 2)
     local sq_y    = sh - SQUARE_SIZE - 10

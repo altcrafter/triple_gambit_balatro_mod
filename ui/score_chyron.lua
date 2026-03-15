@@ -1,7 +1,11 @@
 --[[
     TRIPLE GAMBIT - ui/score_chyron.lua
-    NEW. Broadcast lower-third score readout for the active board.
-    Dark slab with colored left accent bar, score/target, gambit indicator.
+    Broadcast lower-third score readout. 3 elements only:
+      1. Left accent bar (3px, board color, urgency bloom 8→16px at 4Hz)
+      2. Score number (serif 18px, board color, +2° lean, glow 0.6 + urgency×0.4)
+      3. Target (mono 11px, rgba(255,255,255,0.20), "/ N" directly below score)
+    Right 40% fades to transparent. No deficit, no progress wire, no gambit indicator.
+    Cleared state: serif "CLEARED" white -1.5° lean glow 1.8.
 ]]
 
 local Chyron = {}
@@ -17,21 +21,9 @@ local BOARD_UI_COLORS = {
 
 local CLEARED_COLOR = { 0.412, 0.941, 0.682 }
 
-local HAND_SHORTCODES = {
-    ["Pair"]            = "PR",
-    ["Two Pair"]        = "2P",
-    ["Three of a Kind"] = "3K",
-    ["Straight"]        = "ST",
-    ["Flush"]           = "FL",
-    ["Full House"]      = "FH",
-    ["Four of a Kind"]  = "4K",
-    ["High Card"]       = "HC",
-}
-
-local SLAB_W    = 300
-local SLAB_H    = 44
-local ACCENT_W  = 3
-local WIRE_H    = 2
+local SLAB_W   = 280
+local SLAB_H   = 52
+local ACCENT_W = 3
 
 -- ============================================================
 -- HELPERS
@@ -48,16 +40,7 @@ local function active_board()
     return nil
 end
 
-local function get_gambit_lock(id)
-    if not (TG and TG.active_gambits) then return nil end
-    for _, g in ipairs(TG.active_gambits) do
-        if g.board == id then return g end
-    end
-    return nil
-end
-
 local function format_number(n)
-    -- Add commas for readability
     local s = tostring(math.floor(n))
     local result = ""
     local len = #s
@@ -70,9 +53,10 @@ local function format_number(n)
     return result
 end
 
-local function urgency_pulse(t, pct)
+local function urgency_factor(pct)
+    -- 0 when pct < 0.7, rises linearly to 1.0 at pct = 1.0
     if pct < 0.7 then return 0 end
-    return math.max(0.1, 0.5 + math.sin(t * 4) * 0.4)
+    return (pct - 0.7) / 0.3
 end
 
 -- ============================================================
@@ -94,99 +78,75 @@ function Chyron.draw()
     local board = active_board()
     if not board then return end
 
-    local id        = active_id()
-    local bc        = BOARD_UI_COLORS[id] or { 1, 1, 1 }
-    local cleared   = board.is_cleared or false
-    local score     = board.current_score or 0
-    local target    = board.target or 1
-    local pct       = math.min(1.0, score / target)
-    local pulse     = urgency_pulse(_time, pct)
+    local id      = active_id()
+    local bc      = BOARD_UI_COLORS[id] or { 1, 1, 1 }
+    local cleared = board.is_cleared or false
+    local score   = board.current_score or 0
+    local target  = board.target or 1
+    local pct     = math.min(1.0, score / target)
+    local urgency = urgency_factor(pct)
+    -- 4Hz pulse: 0→1 at urgency=0 it stays 0; at urgency=1 it pulses 0–1
+    local pulse   = urgency * (0.5 + math.sin(_time * 4 * 2 * math.pi) * 0.5)
 
     local sw, sh = love.graphics.getDimensions()
-
-    -- Position: bottom of play area, roughly
     local slab_x = 12
     local slab_y = sh - 160
 
-    -- ── Background slab (gradient left→transparent) ──────────
-    -- Draw as stacked rectangles fading right
-    local steps = 12
+    -- ── Background slab: solid left 60%, fades right 40% ──────
+    local solid_w = math.floor(SLAB_W * 0.60)
+    local fade_w  = SLAB_W - solid_w
+    local steps   = 10
+
+    love.graphics.setColor(0.020, 0.008, 0.055, 0.85)
+    love.graphics.rectangle("fill", slab_x, slab_y, solid_w, SLAB_H)
+
     for i = 1, steps do
         local frac = 1 - (i / steps)
         love.graphics.setColor(0.020, 0.008, 0.055, 0.85 * frac)
         love.graphics.rectangle("fill",
-            slab_x + (i - 1) * (SLAB_W / steps), slab_y,
-            SLAB_W / steps + 1, SLAB_H)
+            slab_x + solid_w + (i - 1) * (fade_w / steps), slab_y,
+            fade_w / steps + 1, SLAB_H)
     end
 
-    -- ── Left accent bar ──────────────────────────────────────
+    -- ── Left accent bar ───────────────────────────────────────
     local accent_c = cleared and CLEARED_COLOR or bc
-    -- Bloom
+    local bloom_w  = 8 + pulse * 8   -- 8→16px with urgency
+
     love.graphics.setBlendMode("add")
-    love.graphics.setColor(accent_c[1], accent_c[2], accent_c[3], 0.33 + pulse * 0.2)
-    love.graphics.rectangle("fill", slab_x, slab_y, 8, SLAB_H)
+    love.graphics.setColor(accent_c[1], accent_c[2], accent_c[3], 0.30 + pulse * 0.20)
+    love.graphics.rectangle("fill", slab_x, slab_y, bloom_w, SLAB_H)
     love.graphics.setBlendMode("alpha")
-    -- Solid bar
+
+    -- Solid 3px bar
     love.graphics.setColor(accent_c[1], accent_c[2], accent_c[3], 1.0)
     love.graphics.rectangle("fill", slab_x, slab_y, ACCENT_W, SLAB_H)
 
-    local content_x = slab_x + ACCENT_W + 6
+    local content_x = slab_x + ACCENT_W + 7
 
     if cleared then
-        -- ── CLEARED STATE ────────────────────────────────────
-        TG.Phosphor.draw("CLEARED", content_x, slab_y + 12, CLEARED_COLOR, 2.0, 20)
+        -- ── CLEARED STATE ─────────────────────────────────────
+        local label_y = slab_y + math.floor((SLAB_H - TG.Phosphor.height("serif", 20)) * 0.5)
+        TG.Phosphor.draw("CLEARED", content_x, label_y,
+                         { 1, 1, 1 }, 1.8, "serif", 20, 1.0, math.rad(-1.5))
     else
         -- ── NORMAL STATE ─────────────────────────────────────
         local score_str  = format_number(score)
-        local div_str    = "/"
-        local target_str = format_number(target)
-        local deficit    = math.max(0, target - score)
-        local def_str    = format_number(deficit) .. " rem"
+        local target_str = "/ " .. format_number(target)
 
-        -- Score number (big, glow scales with urgency)
-        local score_glow = 0.7 + pulse * 0.6
-        TG.Phosphor.draw(score_str, content_x, slab_y + 4, bc, score_glow, 18)
+        -- Score: serif 18px, board color, +2° lean
+        local score_glow = 0.6 + urgency * 0.4
+        local score_y    = slab_y + 6
+        TG.Phosphor.draw(score_str, content_x, score_y,
+                         bc, score_glow, "serif", 18, 1.0, math.rad(2))
 
-        -- Divider
-        local div_x = content_x + TG.Phosphor.width(score_str, 18) + 4
-        TG.Phosphor.draw(div_str, div_x, slab_y + 8, { 1, 1, 1 }, 0.0, 8, 0.12)
-
-        -- Target
-        local tgt_x = div_x + TG.Phosphor.width(div_str, 8) + 4
-        TG.Phosphor.draw(target_str, tgt_x, slab_y + 8, { 1, 1, 1 }, 0.0, 11, 0.25)
-
-        -- Deficit (right-aligned)
-        local def_w = TG.Phosphor.width(def_str, 7)
-        local def_x = slab_x + SLAB_W - def_w - 10
-        TG.Phosphor.draw(def_str, def_x, slab_y + 10, { 1, 1, 1 }, 0.0, 7, 0.12)
-
-        -- Gambit indicator
-        local glock = get_gambit_lock(id)
-        if glock then
-            local sc  = HAND_SHORTCODES[glock.hand_type] or "?"
-            local lvl = "+" .. tostring(glock.level_boost)
-            local badge_str = sc .. lvl .. " LOCK"
-            love.graphics.setColor(bc[1], bc[2], bc[3], 0.35)
-            love.graphics.circle("fill", content_x + 3, slab_y + SLAB_H - 10, 2)
-            TG.Phosphor.draw(badge_str, content_x + 8, slab_y + SLAB_H - 15,
-                             bc, 0.0, 7, 0.70)
-        end
+        -- Target: mono 11px, dim white, directly below score
+        local target_y = score_y + TG.Phosphor.height("serif", 18) + 2
+        TG.Phosphor.draw(target_str, content_x, target_y,
+                         { 1, 1, 1 }, 0.0, "mono", 11, 0.20)
     end
 
-    -- ── Progress wire ────────────────────────────────────────
-    local wire_y  = slab_y + SLAB_H - WIRE_H
-    local wire_c  = cleared and CLEARED_COLOR or bc
-    local wire_w  = math.max(0, (SLAB_W - ACCENT_W) * pct)
-
-    love.graphics.setColor(wire_c[1], wire_c[2], wire_c[3], 0.15)
-    love.graphics.rectangle("fill", slab_x + ACCENT_W, wire_y, SLAB_W - ACCENT_W, WIRE_H)
-
-    love.graphics.setBlendMode("add")
-    love.graphics.setColor(wire_c[1], wire_c[2], wire_c[3], 0.8 + pulse * 0.2)
-    love.graphics.rectangle("fill", slab_x + ACCENT_W, wire_y, wire_w, WIRE_H)
-    love.graphics.setBlendMode("alpha")
-
     love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.setBlendMode("alpha")
 end
 
 return Chyron

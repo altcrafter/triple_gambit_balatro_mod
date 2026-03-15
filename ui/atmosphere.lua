@@ -284,55 +284,36 @@ end
 local function draw_channel_badge(t)
     local pad_x = 10
     local pad_y = 44  -- below status bar
-    local bw, bh = 80, 22
-    local x, y = pad_x, pad_y
 
-    -- Background
-    love.graphics.setColor(0.020, 0.008, 0.059, 0.70)
-    love.graphics.rectangle("fill", x, y, bw, bh, 2, 2)
-    love.graphics.setColor(1, 1, 1, 0.08)
-    love.graphics.setLineWidth(1)
-    love.graphics.rectangle("line", x + 0.5, y + 0.5, bw - 1, bh - 1, 2, 2)
+    -- REC dot + "CH3" only. No border, no timecode, no signal bar.
+    local dot_x = pad_x + 7
+    local dot_y = pad_y + 9
+    local dot_pulse = 0.5 + math.sin(t * 2 * 2 * math.pi) * 0.4  -- 2Hz
 
-    -- REC dot
-    local dot_x = x + 7
-    local dot_y = y + bh / 2
-    local dot_pulse = 0.5 + math.sin(t * 2 * 2 * math.pi) * 0.4
-    -- Shadow glow
-    love.graphics.setColor(1, 0.11, 0.11, 0.25 * dot_pulse)
-    love.graphics.circle("fill", dot_x, dot_y, 5)
-    -- Main dot
-    love.graphics.setColor(1, 0.11, 0.11, dot_pulse)
-    love.graphics.circle("fill", dot_x, dot_y, 3)
+    -- Background: minimal dark pill
+    local bw, bh = 44, 18
+    love.graphics.setColor(0.020, 0.008, 0.059, 0.55)
+    love.graphics.rectangle("fill", pad_x, pad_y, bw, bh, 2, 2)
+
+    -- Halo (additive)
+    love.graphics.setBlendMode("add")
+    love.graphics.setColor(1, 0.176, 0.176, 0.20 * dot_pulse)
+    love.graphics.circle("fill", dot_x, dot_y, 7)
+    love.graphics.setBlendMode("alpha")
+
+    -- Main REC dot: 5px radius, #ff2d2d
+    love.graphics.setColor(1.0, 0.176, 0.176, dot_pulse)
+    love.graphics.circle("fill", dot_x, dot_y, 2.5)
 
     if TG and TG.Phosphor then
-        -- "CH3" text
-        local ch_x = x + 16
-        local ch_y = y + 4
-        TG.Phosphor.draw("CH3", ch_x, ch_y, { 1, 1, 1 }, 0.3, 7)
-
-        -- Timecode
-        local sec  = math.floor(t % 60)
-        local frm  = math.floor((t * 17) % 60)
-        local min_ = math.floor(t / 60) % 60
-        local tc   = string.format("%02d:%02d:%02d", min_, sec, frm)
-        TG.Phosphor.draw(tc, x + 16, y + 12, { 1.0, 0.784, 0.196 }, 0.0, 7, 0.50)
+        -- "CH3": mono 8px, rgba(255,255,255,0.5), glow 0.2
+        local ch_x = pad_x + 16
+        local ch_y = pad_y + math.floor((bh - TG.Phosphor.height("mono", 8)) * 0.5)
+        TG.Phosphor.draw("CH3", ch_x, ch_y, { 1, 1, 1 }, 0.2, "mono", 8, 0.5)
     end
 
-    -- Signal bar
-    local sb_x = x + 4
-    local sb_y = y + bh - 4
-    local sb_w = bw - 8
-    love.graphics.setColor(0.1, 0.1, 0.1, 0.6)
-    love.graphics.rectangle("fill", sb_x, sb_y, sb_w, 3)
-    local scan_phase = (t * 0.4) % 1.0
-    local scan_x = sb_x + scan_phase * sb_w
-    local scan_w = sb_w * 0.3
-    love.graphics.setColor(0.9, 0.9, 0.9, 0.5)
-    love.graphics.rectangle("fill", math.min(scan_x, sb_x + sb_w - scan_w), sb_y, scan_w, 3)
-
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.setLineWidth(1)
+    love.graphics.setBlendMode("alpha")
 end
 
 -- ============================================================

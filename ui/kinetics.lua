@@ -200,8 +200,8 @@ function Kinetics.draw_popups()
         else
             alpha = math.max(0, 1 - (p.life - 0.1) / (p.max_life - 0.1))
         end
-        local glow = 1.5 * alpha
-        TG.Phosphor.draw(p.text, p.x, p.y, p.color, glow, p.size, alpha)
+        local glow = 1.2 * alpha
+        TG.Phosphor.draw(p.text, p.x, p.y, p.color, glow, "serif", p.size, alpha, math.rad(2))
     end
     love.graphics.setColor(1, 1, 1, 1)
 end
