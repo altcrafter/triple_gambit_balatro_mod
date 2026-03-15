@@ -356,34 +356,10 @@ function Atm.update(dt)
 end
 
 function Atm.draw()
-    local w, h = love.graphics.getDimensions()
-
-    -- 1. Sunset gradient
-    if _gradient_mesh then
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(_gradient_mesh)
-    else
-        -- Fallback flat color
-        love.graphics.setColor(0.06, 0.03, 0.12, 0.85)
-        love.graphics.rectangle("fill", 0, 0, w, h)
-    end
-
-    -- 2. Sun + venetian blinds
-    draw_sun(_time)
-
-    -- 3. Grid
-    draw_grid(_time, active_board_color())
-
-    -- 4. Color wash
-    draw_wash(_time)
-
-    -- 5. VHS bars
-    draw_vhs(_time)
-
-    -- 6. Scanlines + vignette: deferred to tg_shader.lua
-    --    (Atm does NOT re-implement if shader handles it)
-
-    -- 7. Channel badge
+    -- Full-screen atmosphere layers (gradient, sun, grid, color wash, VHS) are
+    -- drawn AFTER Balatro's own draw call, which means they sit on top of cards,
+    -- the score display and all native UI — making the game unplayable.
+    -- Only keep the channel badge, which is a small corner decoration.
     draw_channel_badge(_time)
 end
 

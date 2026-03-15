@@ -26,9 +26,9 @@ local HAND_SHORTCODES = {
     ["High Card"]       = "HC",
 }
 
-local BADGE_H       = 16
-local BADGE_ACCENT  = 3
-local BADGE_FONT_SZ = 7
+local BADGE_H       = 24
+local BADGE_ACCENT  = 4
+local BADGE_FONT_SZ = 11
 local BADGE_CREAM   = { 1.0, 0.961, 0.902 }  -- rgba(255,245,230) warm white/cream
 
 -- ============================================================
@@ -94,15 +94,14 @@ local function draw_badge(sx, sy, card_w, card_h, gambit)
     local id  = gambit.board
     local bc  = BOARD_UI_COLORS[id] or { 1, 1, 1 }
     local sc  = HAND_SHORTCODES[gambit.hand_type] or "??"
-    local label = sc  -- mono 7px shortcode only on card badges
+    local label = sc
 
     local badge_y = sy + (card_h or 80) - BADGE_H
     local badge_x = sx
 
     -- Pennant shape: rectangle with triangular point on right edge
-    -- Height 14px, point extends 6px beyond rect right, +3° CW rotation
-    local h     = 14
-    local point = 6
+    local h     = BADGE_H - 4
+    local point = 8
     local pen_w = TG.Phosphor.width(label, "mono", BADGE_FONT_SZ) + 10
     local mid_y = badge_y + h * 0.5
     local x0    = badge_x
@@ -150,16 +149,35 @@ end
 function GD.draw_all()
     if not TG or not TG.initialized then return end
     if not TG.Phosphor then return end
-    if not (G and G.hand and G.hand.cards) then return end
+    if not (G and G.STATE and G.STATES) then return end
 
-    -- Only show badges during selecting hand state
+    -- ── In shop: badge each owned joker with its board's gambit ──
+    if G.STATE == G.STATES.SHOP then
+        if G.jokers and G.jokers.cards then
+            for _, card in ipairs(G.jokers.cards) do
+                local bid = card.tg_board_id
+                if bid then
+                    local gambit = get_gambit_for_board(bid)
+                    if gambit then
+                        local sx, sy, cw, ch = card_screen_pos(card)
+                        if sx and sy then
+                            draw_badge(sx - (cw or 60) / 2, sy - (ch or 80) / 2,
+                                       cw or 60, ch or 80, gambit)
+                        end
+                    end
+                end
+            end
+        end
+        love.graphics.setColor(1, 1, 1, 1)
+        return
+    end
+
+    -- ── During hand play: badge all hand cards with active board's gambit ──
     local in_play = (G.STATE == G.STATES.SELECTING_HAND)
                or  (G.STATE == G.STATES.DRAW_TO_HAND)
     if not in_play then return end
+    if not (G.hand and G.hand.cards) then return end
 
-    -- For each card in hand, check if any board has a gambit
-    -- and the card belongs to that board's deck
-    -- Simplified: show gambit badge for active board on all cards
     local active_board_id = TG.active_board_id
     if not active_board_id then return end
 
