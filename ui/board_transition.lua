@@ -17,6 +17,13 @@ local BOARD_UI_COLORS = {
     D = { 0.706, 0.302, 1.0   },
 }
 
+local BOARD_NAMES = {
+    A = "APEX",
+    B = "BLAZE",
+    C = "CHROME",
+    D = "DRIFT",
+}
+
 -- ============================================================
 -- TRIGGER POINTS (Kara calls these)
 -- ============================================================
@@ -38,7 +45,7 @@ function BT.trigger_switch(from_id, to_id)
         from_id  = from_id,
         to_id    = to_id,
         progress = 0.0,
-        duration = 0.55,
+        duration = 0.65,
         bands    = bands,
     }
 end
@@ -73,120 +80,140 @@ local function power_decay(x, power)
     return (1 - math.min(1, x)) ^ power
 end
 
+local function smoothstep(t)
+    t = math.max(0, math.min(1, t))
+    return t * t * (3 - 2 * t)
+end
+
 local function draw_switch(tr)
     if not TG or not TG.Phosphor then return end
 
-    local p  = tr.progress
-    local w, h = love.graphics.getDimensions()
-    local bc = BOARD_UI_COLORS[tr.to_id] or { 1, 1, 1 }
+    local p      = tr.progress
+    local sw, h  = love.graphics.getDimensions()
+    local bc     = BOARD_UI_COLORS[tr.to_id] or { 1, 1, 1 }
+    local scale  = h / 540
 
-    -- ── Phase 1: Snap (0.0–0.09) ──
-    if p < 0.09 then
-        local flash_alpha = (1 - p / 0.09) * 0.25
-        love.graphics.setColor(bc[1], bc[2], bc[3], flash_alpha)
-        love.graphics.rectangle("fill", 0, 0, w, h)
-    end
+    -- ── Phase 0: Full-screen launch flash + white center burst (0.0–0.07) ──
+    if p < 0.07 then
+        local t      = p / 0.07
+        local board_a = (1 - t) * 0.55
+        love.graphics.setColor(bc[1], bc[2], bc[3], board_a)
+        love.graphics.rectangle("fill", 0, 0, sw, h)
 
-    -- ── VHS tracking bands ──────────────────────────────────
-    local band_intensity
-    if p < 0.09 then
-        band_intensity = 1.0
-    elseif p < 0.35 then
-        band_intensity = 1.0
-    else
-        band_intensity = power_decay((p - 0.35) / 0.65, 1.5)
-    end
-
-    if band_intensity > 0.01 then
-        for _, band in ipairs(tr.bands) do
-            local by = (band.y / 100) * h
-            local bh = band.height
-            local bx = band.offset * band_intensity
-
-            -- Main white
-            love.graphics.setColor(1, 1, 1, 0.35 * band_intensity)
-            love.graphics.rectangle("fill", bx, by, w, bh)
-            -- Red ghost
-            love.graphics.setColor(1, 0.392, 0.588, 0.12 * band_intensity)
-            love.graphics.rectangle("fill", bx + 4, by, w, bh)
-            -- Blue ghost
-            love.graphics.setColor(0.235, 0.627, 1.0, 0.10 * band_intensity)
-            love.graphics.rectangle("fill", bx - 4, by, w, bh)
-        end
-    end
-
-    -- ── Edge glow lines ──────────────────────────────────────
-    local edge_intensity
-    if p < 0.09 then
-        edge_intensity = 1.0
-    elseif p < 0.35 then
-        edge_intensity = 1.0
-    else
-        edge_intensity = power_decay((p - 0.35) / 0.65, 2.0)
-    end
-
-    if edge_intensity > 0.01 then
-        local edge_h = math.max(1, 4 * edge_intensity)
+        local burst_a = (1 - t) * 0.70
         love.graphics.setBlendMode("add")
-        love.graphics.setColor(bc[1], bc[2], bc[3], edge_intensity * 0.8)
-        love.graphics.rectangle("fill", 0, 0,          w, edge_h)
-        love.graphics.rectangle("fill", 0, h - edge_h, w, edge_h)
+        love.graphics.setColor(1, 1, 1, burst_a)
+        love.graphics.rectangle("fill", sw * 0.3, h * 0.3, sw * 0.4, h * 0.4)
         love.graphics.setBlendMode("alpha")
     end
 
-    -- ── Label chyron (Phase 2: 0.09–0.35) ───────────────────
-    local chyron_visible
-    if p < 0.09 then
-        chyron_visible = 0
-    elseif p < 0.35 then
-        chyron_visible = (p - 0.09) / 0.26
-    else
-        chyron_visible = power_decay((p - 0.35) / 0.65, 1.8)
+    -- ── Phase 1: Speed streaks (0.03–0.55) ──────────────────────────────
+    if p >= 0.03 and p < 0.55 then
+        local t          = (p - 0.03) / 0.52
+        local intensity  = t < 0.5 and (t / 0.5) or power_decay((t - 0.5) / 0.5, 1.5)
+        local vanish_x   = math.floor(sw * 0.08)   -- left vanishing point
+
+        if intensity > 0.01 then
+            for _, band in ipairs(tr.bands) do
+                local by  = (band.y / 100) * h
+                local bth = math.max(1, band.height * scale)
+                -- Each streak starts at vanishing point, fans out right
+                local spread = intensity * (sw - vanish_x)
+                love.graphics.setColor(bc[1], bc[2], bc[3], 0.45 * intensity)
+                love.graphics.rectangle("fill", vanish_x, by, spread, bth)
+                -- Bright core
+                local core_h = math.max(1, math.floor(bth * 0.4))
+                love.graphics.setBlendMode("add")
+                love.graphics.setColor(bc[1], bc[2], bc[3], 0.30 * intensity)
+                love.graphics.rectangle("fill", vanish_x, by + math.floor((bth - core_h) * 0.5),
+                                        spread, core_h)
+                love.graphics.setBlendMode("alpha")
+            end
+        end
     end
 
-    if chyron_visible > 0.02 then
-        local scale  = h / 540   -- same baseline as all other UI files
+    -- ── Phase 2: Brand plate sweep (0.05–0.78) ──────────────────────────
+    if p >= 0.05 and p < 0.78 then
+        local plate_h   = math.floor(80 * scale)
+        local font_sz   = math.floor(38 * scale)
+        local accent_w  = math.floor(8  * scale)
+        local pad       = math.floor(6  * scale)
 
-        local chyron_h = math.floor(73 * scale)   -- ~120px — matches status bar height
-        local font_sz  = math.floor(38 * scale)   -- ~63px — big readable label
-        local accent_w = math.floor(7  * scale)   -- ~12px
-        local pad      = math.floor(6  * scale)   -- ~10px
+        local brand     = BOARD_NAMES[tr.to_id] or ("BOARD " .. (tr.to_id or "?"))
+        local text_w    = TG.Phosphor.width(brand, "mono", font_sz)
+        local plate_w   = accent_w + pad * 3 + text_w + pad * 3
+        local plate_y   = math.floor(h * 0.40)
+        local rest_x    = math.floor(sw * 0.05)
 
-        -- Entrance: slide in from left
-        local entrance_progress = math.min(1.0, chyron_visible * 1.5)
-        local margin_frac       = (1 - entrance_progress) * -0.5
-        local chyron_x          = math.floor(margin_frac * w)
-        local chyron_y          = math.floor(h * 0.38)
-        local chyron_w          = math.floor(w * 0.55)
-
-        -- Background gradient (solid left 60%, fades right)
-        local solid_w = math.floor(chyron_w * 0.60)
-        local fade_w  = chyron_w - solid_w
-        local steps   = 10
-        love.graphics.setColor(0.020, 0.008, 0.055, 0.92 * chyron_visible)
-        love.graphics.rectangle("fill", chyron_x, chyron_y, solid_w, chyron_h)
-        for i = 1, steps do
-            local frac = 1 - (i / steps)
-            love.graphics.setColor(0.020, 0.008, 0.055, 0.92 * frac * chyron_visible)
-            love.graphics.rectangle("fill",
-                chyron_x + solid_w + (i - 1) * (fade_w / steps), chyron_y,
-                fade_w / steps + 1, chyron_h)
+        -- Plate x position: enter from right, hold, exit left
+        local plate_x
+        if p < 0.20 then
+            local t = smoothstep((p - 0.05) / 0.15)
+            plate_x = math.floor(sw + (rest_x - sw) * t)
+        elseif p < 0.55 then
+            plate_x = rest_x
+        else
+            local t = smoothstep((p - 0.55) / 0.23)
+            plate_x = math.floor(rest_x + (-(plate_w + math.floor(sw * 0.05)) - rest_x) * t)
         end
+
+        -- Plate alpha (fade in fast, hold full, fade out near exit)
+        local plate_a
+        if p < 0.10 then
+            plate_a = (p - 0.05) / 0.05
+        elseif p < 0.65 then
+            plate_a = 1.0
+        else
+            plate_a = 1.0 - (p - 0.65) / 0.13
+        end
+        plate_a = math.max(0, math.min(1, plate_a))
+
+        -- Tilt transform
+        local pivot_cx = plate_x + plate_w * 0.5
+        local pivot_cy = plate_y + plate_h * 0.5
+        love.graphics.push()
+        love.graphics.translate(pivot_cx, pivot_cy)
+        love.graphics.rotate(math.rad(-1.5))
+        love.graphics.translate(-pivot_cx, -pivot_cy)
+
+        -- Dark panel background
+        love.graphics.setColor(0.014, 0.006, 0.040, 0.93 * plate_a)
+        love.graphics.rectangle("fill", plate_x, plate_y, plate_w, plate_h)
 
         -- Left accent bar + bloom
         love.graphics.setBlendMode("add")
-        love.graphics.setColor(bc[1], bc[2], bc[3], 0.5 * chyron_visible)
-        love.graphics.rectangle("fill", chyron_x, chyron_y, accent_w * 5, chyron_h)
+        love.graphics.setColor(bc[1], bc[2], bc[3], 0.45 * plate_a)
+        love.graphics.rectangle("fill", plate_x, plate_y, accent_w * 5, plate_h)
         love.graphics.setBlendMode("alpha")
-        love.graphics.setColor(bc[1], bc[2], bc[3], chyron_visible)
-        love.graphics.rectangle("fill", chyron_x, chyron_y, accent_w, chyron_h)
+        love.graphics.setColor(bc[1], bc[2], bc[3], plate_a)
+        love.graphics.rectangle("fill", plate_x, plate_y, accent_w, plate_h)
 
-        local label  = "BOARD " .. (tr.to_id or "?")
-        local text_x = chyron_x + accent_w + pad * 2
-        local text_y = chyron_y + math.floor((chyron_h - TG.Phosphor.height("serif", font_sz)) * 0.5)
+        -- Brand name text
+        local text_x  = plate_x + accent_w + pad * 2
+        local text_y  = plate_y + math.floor((plate_h - TG.Phosphor.height("mono", font_sz)) * 0.5)
+        local lbl_glow = 2.4 * plate_a
+        TG.Phosphor.draw(brand, text_x, text_y, bc, lbl_glow, "mono", font_sz, plate_a)
 
-        local label_glow = 2.4 * chyron_visible
-        TG.Phosphor.draw(label, text_x, text_y, bc, label_glow, "serif", font_sz, chyron_visible)
+        love.graphics.pop()
+    end
+
+    -- ── Phase 3: Edge frame glow (0.0–0.40) ─────────────────────────────
+    if p < 0.40 then
+        local edge_a = power_decay(p / 0.40, 1.5) * 0.85
+        if edge_a > 0.01 then
+            local edge_th = math.max(2, math.floor(5 * scale * edge_a))
+            love.graphics.setBlendMode("add")
+            love.graphics.setColor(bc[1], bc[2], bc[3], edge_a)
+            -- Top
+            love.graphics.rectangle("fill", 0, 0, sw, edge_th)
+            -- Bottom
+            love.graphics.rectangle("fill", 0, h - edge_th, sw, edge_th)
+            -- Left
+            love.graphics.rectangle("fill", 0, 0, edge_th, h)
+            -- Right
+            love.graphics.rectangle("fill", sw - edge_th, 0, edge_th, h)
+            love.graphics.setBlendMode("alpha")
+        end
     end
 
     love.graphics.setColor(1, 1, 1, 1)

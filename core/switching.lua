@@ -52,6 +52,9 @@ function TG.Switching.execute_switch(to_id)
     if not from_board or not to_board then return end
 
     -- ── 1. Save from-board's hand: return G.hand cards to draw ──
+    -- Also park them in G.deck so keys_to_cards() can find them on future
+    -- switches. Without this the card objects become orphaned (not in any
+    -- CardArea) and are silently skipped, producing a partial or empty hand.
     if G.hand and G.hand.cards then
         for i = #G.hand.cards, 1, -1 do
             local card = G.hand.cards[i]
@@ -60,6 +63,9 @@ function TG.Switching.execute_switch(to_id)
                 from_board:return_to_draw(key)
             end
             G.hand:remove_card(card)
+            if G.deck then
+                TG.Switching._emplace(G.deck, card)
+            end
         end
     end
 
@@ -90,7 +96,17 @@ function TG.Switching.execute_switch(to_id)
     to_board:draw_hand_keys()
     local hand_cards = to_board:keys_to_cards()
     for _, card in ipairs(hand_cards) do
+        -- Remove from G.deck first. A card cannot be in two CardAreas at once;
+        -- skipping this causes duplicate renders and broken sort order.
+        if G.deck then G.deck:remove_card(card) end
         TG.Switching._emplace(G.hand, card)
+    end
+
+    -- Snap cards into their arc positions immediately.
+    -- Without this, cards pile at the CardArea origin before Balatro's
+    -- layout pass runs, which looks broken.
+    if G.hand and G.hand.hard_set_T then
+        G.hand:hard_set_T()
     end
 
     -- ── 5. Sync to-board's state into Balatro ──

@@ -24,6 +24,13 @@ local BOARD_UI_COLORS = {
     D = { 0.706, 0.302, 1.0   },
 }
 
+local BOARD_NAMES = {
+    A = "APEX",
+    B = "BLAZE",
+    C = "CHROME",
+    D = "DRIFT",
+}
+
 local CLEARED_COLOR = { 0.412, 0.941, 0.682 }
 local GOLD_COLOR    = { 1.0, 0.835, 0.31 }
 local BG_COLOR      = { 0.010, 0.003, 0.032 }
@@ -133,9 +140,11 @@ function ShopUI.draw()
             love.graphics.setLineWidth(1)
         end
 
-        -- ── Board letter ────────────────────────────────────────
+        -- ── Brand name ──────────────────────────────────────────
+        local name_sz  = math.floor(11 * (sh / BASE_SH))
+        local brand    = BOARD_NAMES[id] or id
         local letter_x = cx0 + S.accent + S.pad * 2
-        local lh       = TG.Phosphor.height("serif", S.l_size)
+        local lh       = TG.Phosphor.height("mono", name_sz)
         local letter_y = row_y + math.floor((S.tab_h - lh) * 0.5)
 
         local lc, lg, la
@@ -146,12 +155,11 @@ function ShopUI.draw()
         else
             lc, lg, la = { 1, 1, 1 }, 0.0, 0.22
         end
-        TG.Phosphor.draw(id, letter_x, letter_y, lc, lg, "serif", S.l_size, la,
-                         is_sel and math.rad(2) or 0)
+        TG.Phosphor.draw(brand, letter_x, letter_y, lc, lg, "mono", name_sz, la)
 
         -- ── Money or CLEARED ────────────────────────────────────
         if board then
-            local right_x = letter_x + TG.Phosphor.width(id, "serif", S.l_size) + S.pad * 2
+            local right_x = letter_x + TG.Phosphor.width(brand, "mono", name_sz) + S.pad * 2
 
             if cleared then
                 local cy = row_y + math.floor((S.tab_h - TG.Phosphor.height("mono", S.c_size)) * 0.5)
@@ -170,7 +178,7 @@ function ShopUI.draw()
     -- ── "PURCHASING FOR  BOARD X" callout ───────────────────────
     local callout_y  = row_y + S.tab_h
     local sel_bc     = BOARD_UI_COLORS[sel] or { 1, 1, 1 }
-    local callout_s  = "PURCHASING FOR  BOARD " .. sel
+    local callout_s  = "PURCHASING FOR  " .. (BOARD_NAMES[sel] or sel)
 
     -- Callout background
     love.graphics.setColor(sel_bc[1], sel_bc[2], sel_bc[3], 0.06)

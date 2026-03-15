@@ -26,6 +26,13 @@ local BOARD_UI_COLORS = {
     D = { 0.706, 0.302, 1.0   },
 }
 
+local BOARD_NAMES = {
+    A = "APEX",
+    B = "BLAZE",
+    C = "CHROME",
+    D = "DRIFT",
+}
+
 local CLEARED_COLOR = { 0.412, 0.941, 0.682 }
 
 local HAND_SHORTCODES = {
@@ -113,7 +120,8 @@ function StatusBar.draw()
     -- ── Sizes ──────────────────────────────────────────────────
     local bh      = math.floor(73  * scale)   -- bar height  ~120px at 889
     local accent  = math.floor(7   * scale)   -- accent bar  ~12px
-    local l_size  = math.floor(34  * scale)   -- letter font ~56px
+    local l_size  = math.floor(34  * scale)   -- letter font ~56px (kept for cleared/fallback)
+    local name_sz = math.floor(16  * scale)   -- brand name font ~27px at 889
     local m_size  = math.floor(14  * scale)   -- money font  ~23px
     local c_size  = math.floor(12  * scale)   -- "CLEARED"   ~20px
     local pad     = math.floor(6   * scale)   -- gen padding ~10px
@@ -174,36 +182,45 @@ function StatusBar.draw()
             love.graphics.setLineWidth(1)
         end
 
-        -- ── Board letter ──────────────────────────────────────
-        local letter_x = cx0 + accent + pad * 2
-        local lh       = TG.Phosphor.height("serif", l_size)
-        local letter_y = math.floor((bh - lh) * 0.5)
+        -- ── Brand name + money stacked, vertically centred as a unit ──
+        local brand    = BOARD_NAMES[id] or id
+        local text_x   = cx0 + accent + pad * 2
 
-        local lc, lg, la, ll
+        local lc, lg, la
         if active then
-            lc, lg, la, ll = bc, 0.65, 1.0, math.rad(2)
+            lc, lg, la = bc, 0.65, 1.0
         elseif cleared then
-            lc, lg, la, ll = CLEARED_COLOR, 0.15, 0.85, 0
+            lc, lg, la = CLEARED_COLOR, 0.15, 0.85
         else
-            lc, lg, la, ll = { 1, 1, 1 }, 0.0, 0.22, 0
+            lc, lg, la = { 1, 1, 1 }, 0.0, 0.22
         end
-        TG.Phosphor.draw(id, letter_x, letter_y, lc, lg, "serif", l_size, la, ll)
 
-        -- ── Right content: money or CLEARED ──────────────────
         if board then
-            local right_x = letter_x + TG.Phosphor.width(id, "serif", l_size) + pad * 2
-
             if cleared then
-                local cl_y = math.floor((bh - TG.Phosphor.height("mono", c_size)) * 0.5)
-                TG.Phosphor.draw("CLEARED", right_x, cl_y,
+                -- Show brand name + "CLEARED" stacked
+                local name_h    = TG.Phosphor.height("mono", name_sz)
+                local cl_h      = TG.Phosphor.height("mono", c_size)
+                local stack_h   = name_h + 4 + cl_h
+                local top_y     = math.floor((bh - stack_h) * 0.5)
+
+                TG.Phosphor.draw(brand, text_x, top_y, lc, lg, "mono", name_sz, la)
+                TG.Phosphor.draw("CLEARED", text_x, top_y + name_h + 4,
                                  CLEARED_COLOR, 0.6, "mono", c_size, 0.95)
             else
+                -- Brand name on top, money below — stacked, unit centred in bh
                 local money   = board.money or 0
                 local money_s = "$" .. tostring(money)
-                local money_y = math.floor((bh - TG.Phosphor.height("mono", m_size)) * 0.5)
+                local name_h  = TG.Phosphor.height("mono", name_sz)
+                local mon_h   = TG.Phosphor.height("mono", m_size)
+                local stack_h = name_h + 4 + mon_h
+                local top_y   = math.floor((bh - stack_h) * 0.5)
+
+                TG.Phosphor.draw(brand, text_x, top_y, lc, lg, "mono", name_sz, la)
+
+                local money_y = top_y + name_h + 4
                 local ma      = active and 1.0 or 0.40
                 local mg      = active and 0.35 or 0.0
-                TG.Phosphor.draw(money_s, right_x, money_y,
+                TG.Phosphor.draw(money_s, text_x, money_y,
                                  { 1.0, 0.835, 0.31 }, mg, "mono", m_size, ma)
 
                 -- Gambit pennant (below money when lock is active)
@@ -213,14 +230,19 @@ function StatusBar.draw()
                 if glock then
                     local sc    = (HAND_SHORTCODES[glock.hand_type] or "??")
                                .. "+" .. tostring(glock.level_boost or 0)
-                    local pen_y = money_y + TG.Phosphor.height("mono", m_size) + pad
+                    local pen_y = money_y + mon_h + pad
                     if pen_y + pen_h <= bh - pad then
                         local pen_w = TG.Phosphor.width(sc, "mono", m_size) + pad * 2
-                        draw_gambit_pennant(right_x, pen_y, pen_w, bc, sc,
+                        draw_gambit_pennant(text_x, pen_y, pen_w, bc, sc,
                                             pen_h, pen_pt, m_size, pad)
                     end
                 end
             end
+        else
+            -- No board data: just draw the brand name centred
+            local name_h = TG.Phosphor.height("mono", name_sz)
+            local name_y = math.floor((bh - name_h) * 0.5)
+            TG.Phosphor.draw(brand, text_x, name_y, lc, lg, "mono", name_sz, la)
         end
     end
 
